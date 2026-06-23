@@ -42,6 +42,7 @@
             torando-gui-configuration-port
             torando-gui-configuration-config-file
             torando-gui-configuration-extra-options
+            torando-gui-configuration-seed-config
             torando-gui-service-type))
 
 (define-record-type* <torando-gui-configuration>
@@ -54,7 +55,13 @@
   (host           torando-gui-configuration-host           (default "127.0.0.1"))
   (port           torando-gui-configuration-port           (default 8088))
   (config-file    torando-gui-configuration-config-file    (default #f))
-  (extra-options  torando-gui-configuration-extra-options  (default '())))
+  (extra-options  torando-gui-configuration-extra-options  (default '()))
+  ;; Initial /etc/torando-gui/config.json, written on activation IF absent (so
+  ;; later GUI changes persist).  Default makes the daemon correct on Guix:
+  ;; torrc management OFF (tor-service-type owns the read-only /etc/tor/torrc)
+  ;; and DNSPort 5353 to match a typical tor-service.  #f to seed nothing.
+  (seed-config    torando-gui-configuration-seed-config
+                  (default "{\n  \"manage_torrc\": false,\n  \"dns_port\": 5353\n}\n")))
 
 (define (torando-gui-shepherd-service config)
   (let* ((package     (torando-gui-configuration-package config))
@@ -79,12 +86,28 @@
       (stop #~(make-kill-destructor))
       (respawn? #t)))))
 
+(define (torando-gui-activation config)
+  ;; Seed /etc/torando-gui/config.json once (writable, NOT a store symlink) so
+  ;; the daemon reads it and the GUI can still save changes back to it.
+  (let ((seed (torando-gui-configuration-seed-config config)))
+    (if seed
+        #~(let ((dir "/etc/torando-gui")
+                (file "/etc/torando-gui/config.json"))
+            (unless (file-exists? file)
+              (unless (file-exists? dir) (mkdir dir))
+              (call-with-output-file file
+                (lambda (port) (display #$seed port)))
+              (chmod file #o644)))
+        #~#t)))
+
 (define torando-gui-service-type
   (service-type
    (name 'torando-gui)
    (extensions
     (list (service-extension shepherd-root-service-type
                              torando-gui-shepherd-service)
+          (service-extension activation-service-type
+                             torando-gui-activation)
           (service-extension profile-service-type
                              (lambda (config)
                                (list (torando-gui-configuration-package config))))))

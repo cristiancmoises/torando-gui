@@ -49,8 +49,10 @@ successful connect; the fixes harden the failure paths and the Guix packaging.
   native `torando-gui-service-type` — standalone in
   `packaging/torando-gui-shepherd.scm`, and in the securityops channel as
   `(securityops services torando)` — that runs `torando-guid` as root via the
-  Shepherd (`herd start torando-gui`). The systemd unit remains for systemd
-  hosts.
+  Shepherd (`herd start torando-gui`). It auto-seeds `/etc/torando-gui/config.json`
+  on first activation (`seed-config` field; `manage_torrc=false`, `dns_port=5353`
+  by default) so it works out of the box alongside `tor-service-type`. The
+  systemd unit remains for systemd hosts.
 - **Self-contained Guix package.** `packaging/guix.scm` now rewrites both shims
   to call the store `python3` and prepends the store paths of the tools the
   root daemon shells out to (`iptables`, `chattr` via `e2fsprogs`, `tor`); the

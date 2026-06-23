@@ -114,14 +114,16 @@ Guix System supervises daemons with the **GNU Shepherd, not systemd** — so the
 `guix system reconfigure`, then `herd start torando-gui` (it also runs at boot).
 The daemon runs as root under Shepherd and logs to `/var/log/torando-gui.log`;
 run the `torando-gui` launcher to open the UI. Config fields: `host`, `port`,
-`package`, `config-file`, `extra-options`.
+`package`, `config-file`, `seed-config`, `extra-options`.
 
 > On Guix System `/etc/tor/torrc` is a read-only store symlink owned by
-> `tor-service-type`, so turn **off** "manage torrc" in the GUI Settings (it
-> persists to the writable `/etc/torando-gui/config.json`) and let
-> `tor-service-type` own Tor's config. The netfilter rules, DNS pinning,
-> killswitch and status work normally; Tor service control from the GUI uses
-> `systemctl` and is a no-op on Guix (use `herd`).
+> `tor-service-type`, so the service **auto-seeds `/etc/torando-gui/config.json`**
+> on first activation (only if absent, so GUI changes persist) with
+> `"manage_torrc": false` and `"dns_port": 5353` — matching a typical
+> `tor-service-type`, so it works out of the box with no manual toggling.
+> Override via the `seed-config` field (a JSON string, or `#f`). The netfilter
+> rules, DNS pinning, killswitch and status work normally; Tor service control
+> from the GUI uses `systemctl` and is a no-op on Guix (use `herd`).
 
 The `packaging/systemd/torando-gui.service` unit is for **systemd** hosts
 (Debian/Fedora/Arch, or `guix package` on a systemd distro).
