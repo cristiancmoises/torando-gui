@@ -1,0 +1,24 @@
+# Build / release outputs (published as release assets, not committed)
+/build/
+/dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.venv/
+venv/
+
+# Guix
+*.go
+
+# Editor / OS cruft
+*~
+\#*\#
+.DS_Store
+*.swp

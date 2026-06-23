@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Torando Control
+GenericName=Tor Transparent Proxy
+Comment=Route a user's traffic through Tor with a killswitch
+Exec=torando-gui
+Icon=torando-gui
+Terminal=false
+Categories=Network;Security;System;
+Keywords=tor;privacy;proxy;vpn;anonymity;
+StartupNotify=true

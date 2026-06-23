@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only
+     Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="torando-token" content="__TORANDO_TOKEN__" />
+  <title>Torando Control</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body data-state="unknown">
+  <div class="app">
+    <div id="mock-banner" class="mock-banner" hidden>preview mode — no privileges, no Tor</div>
+
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-mark" src="/securityops-logo.svg" alt="Security Ops" width="28" height="28" />
+        <span class="brand-text">
+          <span class="brand-word">Torando</span>
+          <span class="brand-sub">by Security Ops</span>
+        </span>
+      </div>
+      <div class="topbar-actions">
+        <div class="user-menu">
+          <button id="user-btn" class="user-btn" type="button" aria-haspopup="true" aria-expanded="false">
+            <svg viewBox="0 0 24 24" class="user-ic" aria-hidden="true">
+              <circle cx="12" cy="8" r="4" fill="currentColor"/>
+              <path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" fill="currentColor"/>
+            </svg>
+            <span id="user-label">no user</span>
+            <svg viewBox="0 0 12 12" class="chev" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          </button>
+          <div id="user-pop" class="user-pop" role="menu" hidden></div>
+        </div>
+        <button id="open-settings" class="icon-btn" type="button" aria-label="Settings" aria-haspopup="dialog">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 8a4 4 0 100 8 4 4 0 000-8zm9.4 4a7.4 7.4 0 00-.1-1.3l2-1.6-2-3.4-2.4 1a7.3 7.3 0 00-2.2-1.3L16.3 1h-4l-.4 2.6A7.3 7.3 0 009.7 5l-2.4-1-2 3.4 2 1.6A7.5 7.5 0 007.2 12c0 .4 0 .9.1 1.3l-2 1.6 2 3.4 2.4-1c.7.5 1.4 1 2.2 1.3l.4 2.6h4l.4-2.6c.8-.3 1.5-.7 2.2-1.3l2.4 1 2-3.4-2-1.6c.1-.4.1-.9.1-1.3z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- MAP -->
+    <div class="map" id="map">
+      <svg class="map-svg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <g id="map-zoom" class="map-zoom">
+          <path id="map-land" class="map-land" d="" />
+          <g id="marker" class="marker" transform="translate(500 250)" opacity="0">
+            <circle class="ring ring3" r="40"/>
+            <circle class="ring ring2" r="26"/>
+            <circle class="ring ring1" r="14"/>
+            <circle class="dot-halo" r="11"/>
+            <circle class="dot" r="5"/>
+          </g>
+        </g>
+      </svg>
+      <div class="map-fade"></div>
+    </div>
+
+    <!-- CONTROL DECK -->
+    <section class="deck">
+      <div class="status">
+        <button id="status-toggle" class="status-head" type="button" aria-expanded="false">
+          <span class="status-line">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="status-tag" class="status-tag">checking</span>
+          </span>
+          <svg viewBox="0 0 16 16" class="status-chev" aria-hidden="true"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+        </button>
+        <div class="status-body">
+          <div id="status-state" class="status-state">Reading system state</div>
+          <div id="status-where" class="status-where">&nbsp;</div>
+          <div id="status-progress" class="status-progress" hidden><i id="status-progress-bar"></i></div>
+        </div>
+        <div id="status-detail" class="status-detail" hidden>
+          <div class="kv"><span>Exit IP</span><b id="d-exit" class="mono">—</b></div>
+          <div class="kv"><span>Exit country</span><b id="d-country">—</b></div>
+          <div class="kv"><span>Exit city</span><b id="d-city">—</b></div>
+          <div class="kv"><span>Coordinates</span><b id="d-coords" class="mono">—</b></div>
+          <div class="kv"><span>DNS resolver</span><b id="d-dns" class="mono">—</b></div>
+          <div class="kv"><span>Tor service</span><b id="d-tor">—</b></div>
+          <div class="kv"><span>Circuits</span><b id="d-circuits">—</b></div>
+          <div class="detail-log-head">
+            <span>Activity</span>
+            <button id="clear-log" class="text-btn" type="button">clear</button>
+          </div>
+          <ol id="console" class="console mono" aria-live="polite"></ol>
+        </div>
+      </div>
+
+      <button id="switch-location" class="location-btn" type="button">
+        <svg viewBox="0 0 24 24" class="loc-ic" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="loc-text"><span class="loc-label">Exit location</span><span id="loc-value" class="loc-value">Automatic</span></span>
+        <svg viewBox="0 0 16 16" class="loc-go" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+      </button>
+
+      <button id="action" class="action" type="button">
+        <span id="action-label">Connect</span>
+      </button>
+      <button id="newnym" class="ghost-action" type="button" hidden>New Tor identity</button>
+      <div class="powered" aria-label="Powered by Tor">
+        <svg class="tor-onion" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 6.5c.3-2.1 1.7-3.3 3.7-3.4-.2 2-1.4 3.2-3.7 3.4z" fill="#68B030"/>
+          <path d="M16 5.5C11 8.5 8 12.5 8 17c0 4.5 3.6 8 8 8s8-3.5 8-8c0-4.5-3-8.5-8-11.5z" fill="#7D4698"/>
+          <path d="M16 9.5c-3 2.5-4.5 5.1-4.5 7.9 0 2.65 1.95 4.7 4.5 4.7s4.5-2.05 4.5-4.7C20.5 14.6 19 12 16 9.5z" fill="none" stroke="#59316B" stroke-width="1.3" opacity="0.55"/>
+        </svg>
+        <span>powered by <b>Tor</b></span>
+      </div>
+    </section>
+  </div>
+
+  <!-- SETTINGS DRAWER -->
+  <div id="overlay" class="overlay" hidden></div>
+  <aside id="drawer" class="drawer" aria-hidden="true" role="dialog" aria-label="Settings">
+    <div class="drawer-top">
+      <h2>Settings</h2>
+      <button id="close-settings" class="icon-btn" type="button" aria-label="Close settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+    </div>
+    <form id="settings-form" class="drawer-body">
+      <fieldset>
+        <legend>Exit location</legend>
+        <label>Country (ISO code, blank = automatic)
+          <input name="exit_country" type="text" maxlength="2" placeholder="se" autocomplete="off" autocapitalize="off" spellcheck="false" /></label>
+        <div id="country-chips" class="chips"></div>
+      </fieldset>
+      <fieldset>
+        <legend>Tor ports</legend>
+        <label>Transparent<input name="trans_port" type="number" min="1" max="65535" inputmode="numeric" /></label>
+        <label>DNS<input name="dns_port" type="number" min="1" max="65535" inputmode="numeric" /></label>
+        <label>SOCKS<input name="socks_port" type="number" min="1" max="65535" inputmode="numeric" /></label>
+        <label>Control<input name="control_port" type="number" min="1" max="65535" inputmode="numeric" /></label>
+      </fieldset>
+      <fieldset>
+        <legend>Behaviour</legend>
+        <label class="check"><input name="manage_torrc" type="checkbox" /> <span>Manage torrc block</span></label>
+        <label class="check"><input name="enable_control_port" type="checkbox" /> <span>Enable control port</span></label>
+        <label class="check"><input name="lock_resolv" type="checkbox" /> <span>Pin resolv.conf to 127.0.0.1</span></label>
+        <label class="check"><input name="use_bridges" type="checkbox" /> <span>Use bridges</span></label>
+        <label>Bridge lines (one per line)
+          <textarea name="bridges" rows="3" placeholder="obfs4 …" autocomplete="off" spellcheck="false"></textarea></label>
+      </fieldset>
+      <div class="drawer-actions">
+        <span id="settings-msg" class="settings-msg" role="status"></span>
+        <button type="submit" class="action small">Save changes</button>
+      </div>
+      <p class="legal">Torando is independent software and is not affiliated with or endorsed by The Tor Project. &ldquo;Tor&rdquo; and the onion logo are trademarks of The Tor Project, Inc. Torando routes traffic through Tor but is not Tor Browser.</p>
+    </form>
+  </aside>
+
+  <script src="/worldmap.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

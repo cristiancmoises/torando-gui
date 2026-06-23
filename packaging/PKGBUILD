@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
+# Maintainer: Cristian Cezar Moisés <cristian@securityops.co>
+pkgname=torando-gui
+pkgver=1.0.1
+pkgrel=1
+pkgdesc="Route a user's egress through Tor (transparent proxy + killswitch)"
+arch=('any')
+url="https://codeberg.org/cristiancmoises/torando-gui"
+license=('AGPL-3.0-only')
+depends=('python>=3.11' 'tor' 'iptables' 'e2fsprogs' 'polkit')
+optdepends=('python-pillow: regenerate icons from source')
+backup=('usr/share/polkit-1/rules.d/49-torando-gui.rules')
+
+# Built from the surrounding repository checkout. Run makepkg from packaging/.
+build() {
+    :  # pure Python, nothing to compile
+}
+
+package() {
+    cd "$startdir/.."
+    install -d "$pkgdir/usr/lib/torando-gui"
+    cp -r backend/torando_gui "$pkgdir/usr/lib/torando-gui/torando_gui"
+    find "$pkgdir/usr/lib/torando-gui" -name '__pycache__' -type d -prune -exec rm -rf {} +
+
+    install -Dm0755 packaging/bin/torando-gui  "$pkgdir/usr/bin/torando-gui"
+    install -Dm0755 packaging/bin/torando-guid "$pkgdir/usr/bin/torando-guid"
+    install -Dm0644 packaging/systemd/torando-gui.service \
+        "$pkgdir/usr/lib/systemd/system/torando-gui.service"
+    install -Dm0644 packaging/polkit/co.securityops.torando-gui.policy \
+        "$pkgdir/usr/share/polkit-1/actions/co.securityops.torando-gui.policy"
+    install -Dm0644 packaging/polkit/49-torando-gui.rules \
+        "$pkgdir/usr/share/polkit-1/rules.d/49-torando-gui.rules"
+    install -Dm0644 packaging/desktop/torando-gui.desktop \
+        "$pkgdir/usr/share/applications/torando-gui.desktop"
+    for sz in 256 128 64; do
+        install -d "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps"
+        python3 packaging/icons/make_icon.py \
+            "$pkgdir/usr/share/icons/hicolor/${sz}x${sz}/apps/torando-gui.png" "$sz" >/dev/null
+    done
+    install -Dm0644 README.md      "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm0644 THREAT_MODEL.md "$pkgdir/usr/share/doc/$pkgname/THREAT_MODEL.md"
+    install -Dm0644 LICENSE        "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

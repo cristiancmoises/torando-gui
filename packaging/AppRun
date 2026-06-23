@@ -1,0 +1,54 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
+# AppImage entry point. The daemon needs root (netfilter, torrc, resolv.conf),
+# so it is launched through pkexec; the app is pure-stdlib and uses the system
+# python3 (>= 3.11). The session token is injected into the page by the server,
+# so this launcher only needs to start the daemon and open the browser.
+set -eu
+
+HERE=$(dirname -- "$(readlink -f -- "$0")")
+export PYTHONPATH="$HERE/usr/lib/torando-gui${PYTHONPATH:+:$PYTHONPATH}"
+
+HOST="127.0.0.1"
+PORT="8088"
+URL="http://$HOST:$PORT/"
+
+reachable() {
+    python3 - "$URL" <<'PY' 2>/dev/null
+import sys, urllib.request
+try:
+    urllib.request.urlopen(sys.argv[1], timeout=1.5); sys.exit(0)
+except Exception:
+    sys.exit(1)
+PY
+}
+
+if ! reachable; then
+    if command -v pkexec >/dev/null 2>&1; then
+        pkexec env PYTHONPATH="$PYTHONPATH" \
+            python3 -m torando_gui --host "$HOST" --port "$PORT" >/dev/null 2>&1 &
+    else
+        echo "pkexec not found; run the daemon as root:" >&2
+        echo "  sudo env PYTHONPATH=$PYTHONPATH python3 -m torando_gui" >&2
+        exit 1
+    fi
+    i=0
+    while [ "$i" -lt 30 ]; do
+        reachable && break
+        i=$((i + 1))
+        sleep 0.5
+    done
+fi
+
+if ! reachable; then
+    echo "Torando Control backend did not come up at $URL" >&2
+    exit 1
+fi
+
+if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$URL" >/dev/null 2>&1 || python3 -m webbrowser "$URL"
+else
+    python3 -m webbrowser "$URL"
+fi
+echo "Torando Control: $URL"

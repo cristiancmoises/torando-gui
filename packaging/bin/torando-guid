@@ -1,0 +1,5 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
+export PYTHONPATH="/usr/lib/torando-gui${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m torando_gui "$@"

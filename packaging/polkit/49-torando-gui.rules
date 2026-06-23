@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
+// Let an active local session start/stop torando-gui.service without a password
+// prompt, while still requiring admin auth from inactive/remote sessions.
+polkit.addRule(function (action, subject) {
+  if (
+    action.id === "org.freedesktop.systemd1.manage-units" &&
+    action.lookup("unit") === "torando-gui.service"
+  ) {
+    if (subject.active && subject.local) {
+      return polkit.Result.YES;
+    }
+    return polkit.Result.AUTH_ADMIN;
+  }
+});

@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
+[Unit]
+Description=Torando Control — route a user's egress through Tor (transparent proxy)
+Documentation=https://codeberg.org/cristiancmoises/torando-gui
+After=network.target tor.service
+Wants=tor.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/torando-guid --host 127.0.0.1 --port 8088
+Restart=on-failure
+RestartSec=2
+
+# The daemon must edit netfilter, /etc/tor/torrc and /etc/resolv.conf, call
+# systemctl, and set the immutable bit on resolv.conf. It therefore runs as
+# root. The hardening below is the strongest set that does NOT break those
+# operations; each relaxation is deliberate and commented.
+RuntimeDirectory=torando-gui
+RuntimeDirectoryMode=0750
+# CAP_NET_ADMIN: program iptables.  CAP_LINUX_IMMUTABLE: chattr +i resolv.conf.
+# (No CAP set is added because management of tor.service via systemctl and the
+# write to /etc/tor need broad root; tightening to a capability bounding set is
+# tracked for a later release and noted in THREAT_MODEL.md.)
+NoNewPrivileges=no
+ProtectSystem=false
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallFilter=@system-service @network-io
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

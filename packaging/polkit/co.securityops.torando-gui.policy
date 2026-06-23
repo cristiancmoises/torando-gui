@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: AGPL-3.0-only
+     Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only -->
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Security Ops</vendor>
+  <vendor_url>https://securityops.co</vendor_url>
+
+  <action id="co.securityops.torando-gui.manage">
+    <description>Start or stop the Torando Control service</description>
+    <message>Authentication is required to control Tor routing for this system</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.systemd1.unit">torando-gui.service</annotate>
+    <annotate key="org.freedesktop.systemd1.manage-units">true</annotate>
+  </action>
+</policyconfig>

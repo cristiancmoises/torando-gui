@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# GitHub Actions CI: lint + format-check + tests across the supported Python
+# range. The project is stdlib-only, so the only dev dependencies are ruff and
+# pytest. Mirrored to .forgejo/workflows/ci.yml for Forgejo/Codeberg.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["python:3.11-slim", "python:3.12-slim", "python:3.13-slim"]
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dev tooling
+        run: pip install --no-cache-dir ruff pytest
+      - name: Lint (ruff check)
+        run: ruff check .
+      - name: Format check (ruff format --check)
+        run: ruff format --check .
+      - name: Tests (pytest)
+        run: pytest tests/ -q

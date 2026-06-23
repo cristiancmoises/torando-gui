@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Security Ops">
+  <defs>
+    <linearGradient id="so-g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5fe7f8"/>
+      <stop offset="1" stop-color="#0e7490"/>
+    </linearGradient>
+  </defs>
+  <!-- shield -->
+  <path d="M16 2.5l11 3.4v8.2c0 7.2-4.7 12.2-11 14.4-6.3-2.2-11-7.2-11-14.4V5.9z"
+        fill="url(#so-g)"/>
+  <path d="M16 2.5l11 3.4v8.2c0 7.2-4.7 12.2-11 14.4-6.3-2.2-11-7.2-11-14.4V5.9z"
+        fill="none" stroke="#22d3ee" stroke-width="0.8" opacity="0.6"/>
+  <!-- inner bevel -->
+  <path d="M16 5.4l8.2 2.5v6.4c0 5.4-3.4 9.2-8.2 11-4.8-1.8-8.2-5.6-8.2-11V7.9z"
+        fill="#08151a" opacity="0.55"/>
+  <!-- keyhole -->
+  <circle cx="16" cy="14" r="3" fill="#5fe7f8"/>
+  <path d="M14.6 15.4h2.8l1 6.2h-4.8z" fill="#5fe7f8"/>
+</svg>
