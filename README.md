@@ -79,14 +79,13 @@ torando-gui
 ```
 
 ### GNU Guix
-Build and install straight from the checkout:
+Build and install the package straight from the checkout:
 ```sh
 guix package -f packaging/guix.scm
 ```
 The Guix build is **self-contained**: both shims are rewritten to call the
 store `python3` and prepend the store paths of `iptables`, `chattr`
-(`e2fsprogs`) and `tor`, and the installed systemd unit points at the store
-binary — nothing extra is needed on the profile's `PATH`.
+(`e2fsprogs`) and `tor` — nothing extra is needed on the profile's `PATH`.
 
 It is also published in the **securityops** channel; with that channel on your
 load path you can simply:
@@ -95,6 +94,37 @@ guix install torando-gui
 # or, without pulling, from a local channel checkout:
 guix install -L /path/to/securityops-channel torando-gui
 ```
+
+#### Run as a service on Guix System (GNU Shepherd)
+Guix System supervises daemons with the **GNU Shepherd, not systemd** — so the
+`torando-gui.service` systemd unit shipped in this package is inert on Guix. The
+**securityops** channel provides a native service type,
+`torando-gui-service-type` in `(securityops services torando)`. Add it to your
+`operating-system`:
+```scheme
+(use-modules (securityops services torando))
+
+(operating-system
+  ;; …
+  (services
+   (cons* (service torando-gui-service-type)   ; runs torando-guid on 127.0.0.1:8088
+          (service tor-service-type)           ; Tor itself (Shepherd-managed)
+          %desktop-services)))                 ; or %base-services + a network service
+```
+`guix system reconfigure`, then `herd start torando-gui` (it also runs at boot).
+The daemon runs as root under Shepherd and logs to `/var/log/torando-gui.log`;
+run the `torando-gui` launcher to open the UI. Config fields: `host`, `port`,
+`package`, `config-file`, `extra-options`.
+
+> On Guix System `/etc/tor/torrc` is a read-only store symlink owned by
+> `tor-service-type`, so turn **off** "manage torrc" in the GUI Settings (it
+> persists to the writable `/etc/torando-gui/config.json`) and let
+> `tor-service-type` own Tor's config. The netfilter rules, DNS pinning,
+> killswitch and status work normally; Tor service control from the GUI uses
+> `systemctl` and is a no-op on Guix (use `herd`).
+
+The `packaging/systemd/torando-gui.service` unit is for **systemd** hosts
+(Debian/Fedora/Arch, or `guix package` on a systemd distro).
 
 ### AppImage (no system install)
 ```sh
@@ -156,7 +186,8 @@ make all            # every format whose tooling is present on this host
 - `tests/` — unit tests for the engine, SOCKS framing, exit-check invariants,
   config, torrc/resolv editing, and the server's access controls.
 - `packaging/` — systemd unit, polkit policy, desktop entry, icon, and the
-  per-format build scripts (`guix.scm` for the Guix package).
+  per-format build scripts (`guix.scm` for the Guix package;
+  `torando-gui-shepherd.scm` for the Guix System Shepherd service).
 - `THREAT_MODEL.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md` — project
   docs; CI for GitHub and Forgejo/Codeberg lives in `.github/` and `.forgejo/`.
 

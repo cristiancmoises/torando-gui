@@ -44,6 +44,13 @@ successful connect; the fixes harden the failure paths and the Guix packaging.
   polkit denial) now reports its stderr instead of a generic "not reachable".
 
 ### Packaging
+- **GNU Guix System (Shepherd) service.** Guix supervises daemons with the GNU
+  Shepherd, not systemd, so the bundled systemd unit is inert there. Added a
+  native `torando-gui-service-type` — standalone in
+  `packaging/torando-gui-shepherd.scm`, and in the securityops channel as
+  `(securityops services torando)` — that runs `torando-guid` as root via the
+  Shepherd (`herd start torando-gui`). The systemd unit remains for systemd
+  hosts.
 - **Self-contained Guix package.** `packaging/guix.scm` now rewrites both shims
   to call the store `python3` and prepends the store paths of the tools the
   root daemon shells out to (`iptables`, `chattr` via `e2fsprogs`, `tor`); the
