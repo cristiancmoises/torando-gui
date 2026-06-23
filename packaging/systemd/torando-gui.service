@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
 [Unit]
 Description=Torando Control — route a user's egress through Tor (transparent proxy)
-Documentation=https://codeberg.org/cristiancmoises/torando-gui
+Documentation=https://github.com/cristiancmoises/torando-gui
 After=network.target tor.service
 Wants=tor.service
 

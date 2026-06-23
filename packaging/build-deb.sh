@@ -25,7 +25,7 @@ Recommends: python3-gi, gir1.2-gtk-4.0, gir1.2-webkit-6.0
 Suggests: python3-pil
 Section: net
 Priority: optional
-Homepage: https://codeberg.org/cristiancmoises/torando-gui
+Homepage: https://github.com/cristiancmoises/torando-gui
 Description: Route a user's egress through Tor (transparent proxy + killswitch)
  Loopback web GUI that forces one local user's traffic through Tor's
  TransPort/DNSPort and drops everything else from that user. Automates the

@@ -1,46 +1,41 @@
-# Security Policy
+# Security policy
 
-Torando Control is a privacy/security tool: it routes a Linux user's egress
-through Tor and installs a killswitch. Please treat vulnerabilities accordingly.
+Torando Control routes a user's traffic through Tor and installs a killswitch,
+so treat vulnerabilities seriously.
 
-## Reporting a vulnerability
+## Reporting
 
-**Do not open a public issue for a security vulnerability.** Report it
-privately, by email, to:
+Don't open a public issue for a security bug. Email it privately to
+**cristian@securityops.co**.
 
-- **cristian@securityops.co** (maintainer)
+Include the version (`torando-guid --version`), your distro and packaging format
+(deb/rpm/Arch/Guix/AppImage), what you found, and a way to reproduce it. If you
+want encryption, say so in a first plaintext mail and we'll exchange a key.
 
-Include: affected version (`torando-guid --version`), distro and packaging
-format (deb/rpm/Arch/Guix/AppImage), a description, and a reproduction or proof
-of concept. If you need encryption, say so in a first plaintext mail and a key
-will be exchanged.
+You'll get an acknowledgement within a few days. Once there's a fix it ships
+across the official repo and mirrors (Forgejo, GitHub, Codeberg) with an
+advisory, and you get credit unless you'd rather not.
 
-You will get an acknowledgement within a few days. Once a fix is ready it will
-be released across all mirrors (Codeberg, GitHub, Forgejo) with a coordinated
-advisory; credit is given unless you prefer otherwise.
-
-## Scope
-
-In scope (please report):
+## In scope
 
 - Bypasses of the killswitch or DNS pinning that let the torified UID's traffic
-  egress in the clear in a configuration the tool claims to protect.
-- Auth/CSRF/host-header bypasses of the loopback control surface.
-- Command injection, path traversal, or privilege issues in the root daemon.
-- Crashes or unsafe state from malformed input (e.g. a crafted GeoIP DB,
-  `torrc`, or control-port reply).
+  leave in the clear in a setup the tool claims to protect.
+- Auth, CSRF or Host-header bypasses of the loopback control surface.
+- Command injection, path traversal, or privilege issues in the daemon.
+- Crashes or unsafe state from malformed input (a crafted GeoIP DB, `torrc`, or
+  control-port reply).
 
-Out of scope — these are **documented design boundaries**, not bugs (see
+## Out of scope
+
+These are documented design boundaries, not bugs (see
 [THREAT_MODEL.md](THREAT_MODEL.md)):
 
-- **IPv6 egress is not filtered** (IPv4-only ruleset); no automatic IPv6
-  killswitch yet.
-- Anonymity-set / fingerprinting properties — this is not Tor Browser.
-- A compromised root account or kernel; other local users on a multi-user host;
-  Tor's own threat model (global passive adversary, traffic correlation,
-  malicious exits).
+- IPv6 egress isn't filtered yet (IPv4-only ruleset).
+- Fingerprinting and anonymity-set properties; this isn't Tor Browser.
+- A compromised root or kernel, other local users on a shared host, and Tor's
+  own threat model (global passive adversary, traffic correlation, hostile
+  exits).
 
 ## Supported versions
 
-The latest released minor version receives security fixes. Older versions are
-not maintained.
+The latest released minor version gets security fixes. Older versions don't.

@@ -40,10 +40,9 @@ A native desktop app, and the fixes for the bugs that could break connectivity.
   `Recommends`, Arch `optdepends`, `pip install torando-gui[gui]`).
 
 ### Docs
-- New deep docs: [docs/USAGE.md](docs/USAGE.md),
-  [docs/SECURITY.md](docs/SECURITY.md) (security architecture),
-  [docs/PERFORMANCE.md](docs/PERFORMANCE.md). THREAT_MODEL/README updated for the
-  new ruleset and the DNS safety contract.
+- Rewrote the docs and added screenshots to the README. [docs/USAGE.md](docs/USAGE.md)
+  covers running, recovery and configuration; THREAT_MODEL and README were
+  updated for the new ruleset and the DNS handling.
 
 ### Tests
 - New/updated regression tests for the 7-rule set and loopback ordering, the
@@ -108,8 +107,8 @@ successful connect; the fixes harden the failure paths and the Guix packaging.
   `torando-gui` to the **securityops** Guix channel.
 - **`e2fsprogs` (`chattr`) declared as a dependency** in the deb, rpm, Arch and
   Guix definitions (the daemon sets the `resolv.conf` immutable bit).
-- Project/home-page URLs point at the public **Codeberg** repository, with
-  GitHub and the self-hosted Forgejo listed as mirrors.
+- Self-hosted **Forgejo** is the official repository; GitHub and Codeberg are
+  mirrors. Home-page URLs point at the public GitHub mirror.
 
 ### Notes
 - The `dist/` binaries shipped alongside this tree are the **1.0.0** release
@@ -143,5 +142,6 @@ Initial release.
   SOCKS framing, exit-check invariants, config, `torrc`/`resolv` editing and the
   server's access controls.
 
-[1.0.1]: https://codeberg.org/cristiancmoises/torando-gui/releases/tag/v1.0.1
-[1.0.0]: https://codeberg.org/cristiancmoises/torando-gui/releases/tag/v1.0.0
+[1.1.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.1.0
+[1.0.1]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.0.1
+[1.0.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.0.0

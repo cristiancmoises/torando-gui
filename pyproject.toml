@@ -23,11 +23,11 @@ dependencies = []
 gui = ["PyGObject>=3.50"]
 
 [project.urls]
-Homepage = "https://codeberg.org/cristiancmoises/torando-gui"
-Repository = "https://codeberg.org/cristiancmoises/torando-gui"
+Homepage = "https://github.com/cristiancmoises/torando-gui"
+"Source (Forgejo, official)" = "https://git.securityops.co/cristiancmoises/torando-gui"
 "Source (GitHub mirror)" = "https://github.com/cristiancmoises/torando-gui"
-"Source (Forgejo)" = "https://git.securityops.co/cristiancmoises/torando-gui"
-Issues = "https://codeberg.org/cristiancmoises/torando-gui/issues"
+"Source (Codeberg mirror)" = "https://codeberg.org/berkeley/torando-gui"
+Issues = "https://github.com/cristiancmoises/torando-gui/issues"
 
 [project.scripts]
 torando-gui = "torando_gui.launcher:main"

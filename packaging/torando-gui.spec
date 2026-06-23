@@ -6,7 +6,7 @@ Release:        1%{?dist}
 Summary:        Route a user's egress through Tor (transparent proxy + killswitch)
 
 License:        AGPL-3.0-only
-URL:            https://codeberg.org/cristiancmoises/torando-gui
+URL:            https://github.com/cristiancmoises/torando-gui
 BuildArch:      noarch
 
 Requires:       python3 >= 3.11

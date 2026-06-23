@@ -105,5 +105,5 @@ exec ~a -m ~a \"$@\"\n"
 TransPort and DNSPort and drops everything else from that user.  It automates
 the upstream torando iptables rules together with torrc and resolv.conf
 management, and reports live bootstrap, DNS-leak and exit status.")
-  (home-page "https://codeberg.org/cristiancmoises/torando-gui")
+  (home-page "https://github.com/cristiancmoises/torando-gui")
   (license license:agpl3))
