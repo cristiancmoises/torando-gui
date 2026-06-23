@@ -6,14 +6,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "torando-gui"
-version = "1.0.1"
-description = "Web GUI to route a Linux user's egress through Tor (transparent proxy + killswitch)"
+version = "1.1.0"
+description = "Native desktop app to route a Linux user's egress through Tor (transparent proxy + killswitch)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
 authors = [{ name = "Cristian Cezar Moisés" }]
-keywords = ["tor", "privacy", "transparent-proxy", "anonymity", "killswitch"]
+keywords = ["tor", "privacy", "transparent-proxy", "anonymity", "killswitch", "gtk", "desktop"]
 dependencies = []
+
+# The daemon is pure-stdlib. The native desktop window additionally needs the
+# GTK4 + WebKitGTK stack via PyGObject; without it the launcher opens the UI in
+# a browser instead. GTK4/WebKitGTK themselves are system libraries (install via
+# your distro: gir1.2-gtk-4.0 + gir1.2-webkit-6.0, gtk4 + webkitgtk6.0, …).
+[project.optional-dependencies]
+gui = ["PyGObject>=3.50"]
 
 [project.urls]
 Homepage = "https://codeberg.org/cristiancmoises/torando-gui"

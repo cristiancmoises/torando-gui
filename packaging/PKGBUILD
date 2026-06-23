@@ -2,14 +2,17 @@
 # Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
 # Maintainer: Cristian Cezar Moisés <cristian@securityops.co>
 pkgname=torando-gui
-pkgver=1.0.1
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="Route a user's egress through Tor (transparent proxy + killswitch)"
 arch=('any')
 url="https://codeberg.org/cristiancmoises/torando-gui"
 license=('AGPL-3.0-only')
 depends=('python>=3.11' 'tor' 'iptables' 'e2fsprogs' 'polkit')
-optdepends=('python-pillow: regenerate icons from source')
+optdepends=('python-gobject: native desktop GUI window'
+            'gtk4: native desktop GUI window'
+            'webkit2gtk-6.0: native desktop GUI window'
+            'python-pillow: regenerate icons from source')
 backup=('usr/share/polkit-1/rules.d/49-torando-gui.rules')
 
 # Built from the surrounding repository checkout. Run makepkg from packaging/.

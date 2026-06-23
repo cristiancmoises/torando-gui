@@ -95,18 +95,64 @@ def apply_torrc(cfg: Config, path: Path | None = None) -> Path:
     return target
 
 
+PINNED_RESOLV = "nameserver 127.0.0.1\n"
+
+
+def _backup_path(path: Path) -> Path:
+    return path.with_suffix(path.suffix + ".torando.bak")
+
+
+def _is_only_our_pin(text: str) -> bool:
+    """True if *text* holds only our loopback pin (no real upstream resolver)."""
+    meaningful = [
+        ln.strip()
+        for ln in text.splitlines()
+        if ln.strip() and not ln.lstrip().startswith("#")
+    ]
+    return meaningful == ["nameserver 127.0.0.1"]
+
+
+def _capture_resolver(path: Path) -> None:
+    """Snapshot the current *real* resolver as the restore point.
+
+    Refreshed on every lock so a later disconnect restores the latest client
+    DNS (e.g. after a DHCP lease change), but never snapshots our own pin over a
+    good backup.
+    """
+    if not path.exists():
+        return
+    current = path.read_bytes()
+    if _is_only_our_pin(current.decode("utf-8", "replace")):
+        return
+    _backup_path(path).write_bytes(current)
+
+
+def resolv_is_pinned(cfg: Config, path: Path | None = None) -> bool:
+    """True if resolv.conf currently holds only our 127.0.0.1 pin."""
+    target = path or Path(cfg.resolv_path)
+    try:
+        return _is_only_our_pin(target.read_text(encoding="utf-8"))
+    except OSError:
+        return False
+
+
 def lock_resolv(
     cfg: Config,
     path: Path | None = None,
     runner: Runner | None = None,
     immutable: bool = True,
 ) -> dict[str, object]:
-    """Point resolv.conf at 127.0.0.1 and optionally set the immutable bit."""
+    """Pin resolv.conf at 127.0.0.1 (mode 0644) and optionally make it immutable.
+
+    Captures the current real resolver first so :func:`restore_resolv` can put
+    it back. The pin is written world-readable on purpose — a root-only
+    resolv.conf breaks DNS for every non-root user.
+    """
     run = runner or _default_runner
     target = path or Path(cfg.resolv_path)
-    _backup_once(target)
+    _capture_resolver(target)
     run(["chattr", "-i", str(target)])  # clear any prior lock so we can write
-    atomic_write_text(target, "nameserver 127.0.0.1\n")
+    atomic_write_text(target, PINNED_RESOLV, mode=0o644)
     locked = False
     note = ""
     if immutable:
@@ -117,22 +163,35 @@ def lock_resolv(
     return {"path": str(target), "immutable": locked, "note": note}
 
 
-def unlock_resolv(
+def restore_resolv(
     cfg: Config,
     path: Path | None = None,
     runner: Runner | None = None,
 ) -> dict[str, object]:
-    """Clear the immutable bit and restore the pre-lock resolv.conf if present."""
+    """Undo :func:`lock_resolv`: clear the immutable bit, put the client's real
+    resolver back (mode 0644), and drop the backup.
+
+    This is what the GUI's *disconnect* calls, what ``--restore-dns`` calls, and
+    what the daemon runs at startup when it finds an orphaned pin — so a crash,
+    a kill, or a reboot can never strand the host without DNS.
+    """
     run = runner or _default_runner
     target = path or Path(cfg.resolv_path)
-    run(["chattr", "-i", str(target)])
-    bak = target.with_suffix(target.suffix + ".torando.bak")
+    run(["chattr", "-i", str(target)])  # always make it writable again first
+    bak = _backup_path(target)
     restored = False
+    note = ""
     if bak.exists():
-        atomic_write_text(target, bak.read_text(encoding="utf-8"))
-        # Drop the backup once restored so the next connect captures the
-        # resolver that is live *then* (it may have changed via DHCP) rather
-        # than replaying a stale snapshot from an earlier session.
-        bak.unlink()
-        restored = True
-    return {"path": str(target), "restored": restored}
+        try:
+            atomic_write_text(target, bak.read_text(encoding="utf-8"), mode=0o644)
+            bak.unlink()
+            restored = True
+        except OSError as exc:
+            note = f"restore failed: {exc}"
+    elif resolv_is_pinned(cfg, target):
+        note = "no backup found; resolv.conf left mutable with the loopback pin"
+    return {"path": str(target), "restored": restored, "note": note}
+
+
+# Backwards-compatible name used by the app/backend layer.
+unlock_resolv = restore_resolv

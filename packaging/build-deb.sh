@@ -21,7 +21,8 @@ Architecture: $ARCH
 Maintainer: Cristian Cezar Moisés <cristian@securityops.co>
 Installed-Size: $INSTALLED_KB
 Depends: python3 (>= 3.11), tor, iptables, e2fsprogs, polkit | policykit-1
-Recommends: python3-pil
+Recommends: python3-gi, gir1.2-gtk-4.0, gir1.2-webkit-6.0
+Suggests: python3-pil
 Section: net
 Priority: optional
 Homepage: https://codeberg.org/cristiancmoises/torando-gui

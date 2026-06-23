@@ -46,97 +46,60 @@ class FakeIptables:
         return _cp(argv, 0)
 
 
-# --- exact upstream reproduction -------------------------------------------
-def test_build_rules_reproduces_upstream_five():
+# --- per-UID transparent-proxy + killswitch ruleset ------------------------
+def test_build_rules_shape_and_order():
     rules = build_rules(1000, 9040, 53)
-    assert len(rules) == 5
-    assert rules[0] == Rule(
-        "nat",
-        "OUTPUT",
-        (
-            "-p",
-            "tcp",
-            "-m",
-            "owner",
-            "--uid-owner",
-            "1000",
-            "-m",
-            "tcp",
-            "-j",
-            "REDIRECT",
-            "--to-ports",
-            "9040",
-        ),
-    )
+    assert len(rules) == 7
+    owner = ("-m", "owner", "--uid-owner", "1000")
+    # 1. loopback is never NAT'd (keeps GUI <-> daemon and local services alive)
+    assert rules[0] == Rule("nat", "OUTPUT", (*owner, "-d", "127.0.0.0/8", "-j", "RETURN"))
+    # 2. TCP -> Tor TransPort
     assert rules[1] == Rule(
-        "nat",
-        "OUTPUT",
-        (
-            "-p",
-            "udp",
-            "-m",
-            "owner",
-            "--uid-owner",
-            "1000",
-            "-m",
-            "udp",
-            "--dport",
-            "53",
-            "-j",
-            "REDIRECT",
-            "--to-ports",
-            "53",
-        ),
+        "nat", "OUTPUT",
+        (*owner, "-p", "tcp", "-m", "tcp", "-j", "REDIRECT", "--to-ports", "9040"),
     )
+    # 3. DNS (udp/53) -> Tor DNSPort
     assert rules[2] == Rule(
-        "filter",
-        "OUTPUT",
-        (
-            "-p",
-            "tcp",
-            "-m",
-            "owner",
-            "--uid-owner",
-            "1000",
-            "-m",
-            "tcp",
-            "--dport",
-            "9040",
-            "-j",
-            "ACCEPT",
-        ),
+        "nat", "OUTPUT",
+        (*owner, "-p", "udp", "-m", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "53"),
     )
-    assert rules[3] == Rule(
-        "filter",
-        "OUTPUT",
-        (
-            "-p",
-            "udp",
-            "-m",
-            "owner",
-            "--uid-owner",
-            "1000",
-            "-m",
-            "udp",
-            "--dport",
-            "53",
-            "-j",
-            "ACCEPT",
-        ),
-    )
-    # rule 5 is the killswitch: drop everything else from this uid
+    # 4. loopback output accepted (critical: the daemon UI is on 127.0.0.1)
+    assert rules[3] == Rule("filter", "OUTPUT", (*owner, "-o", "lo", "-j", "ACCEPT"))
+    # 5/6. torified TCP/DNS accepted
     assert rules[4] == Rule(
-        "filter",
-        "OUTPUT",
-        ("-m", "owner", "--uid-owner", "1000", "-j", "DROP"),
+        "filter", "OUTPUT",
+        (*owner, "-p", "tcp", "-m", "tcp", "--dport", "9040", "-j", "ACCEPT"),
     )
+    assert rules[5] == Rule(
+        "filter", "OUTPUT",
+        (*owner, "-p", "udp", "-m", "udp", "--dport", "53", "-j", "ACCEPT"),
+    )
+    # 7. killswitch must be the LAST filter rule (drop everything else)
+    assert rules[6] == Rule("filter", "OUTPUT", (*owner, "-j", "DROP"))
+
+
+def test_loopback_is_exempt_before_drop():
+    # The loopback ACCEPT (rule 4) must precede the DROP (rule 7) in the same
+    # chain, or the GUI loses its connection to the daemon the moment it connects.
+    rules = build_rules(1000, 9040, 53)
+    filter_rules = [r for r in rules if r.table == "filter"]
+    lo_idx = next(i for i, r in enumerate(filter_rules) if "lo" in r.spec)
+    drop_idx = next(i for i, r in enumerate(filter_rules) if "DROP" in r.spec)
+    assert lo_idx < drop_idx
+
+
+def test_rule_count_constant_matches():
+    from torando_gui.engine import RULE_COUNT
+
+    assert RULE_COUNT == len(build_rules(1000, 9040, 53))
 
 
 def test_build_rules_honours_custom_ports():
     rules = build_rules(1234, 9051, 5353)
-    assert "9051" in rules[0].spec
-    assert rules[1].spec[-1] == "5353"
-    assert rules[2].spec[-3] == "9051"
+    assert rules[1].spec[-1] == "9051"  # TransPort redirect
+    assert rules[2].spec[-1] == "5353"  # DNSPort redirect
+    assert rules[4].spec[-3] == "9051"  # accept TransPort
+    assert rules[5].spec[-3] == "5353"  # accept DNSPort
 
 
 def test_build_rules_rejects_bad_uid_and_ports():
@@ -170,7 +133,7 @@ def test_apply_adds_all_then_status_active():
     eng = Engine(runner=fake)
     eng.apply(1000, 9040, 53)
     st = eng.status(1000, 9040, 53)
-    assert st == {"rules_total": 5, "rules_present": 5, "active": True, "killswitch": True}
+    assert st == {"rules_total": 7, "rules_present": 7, "active": True, "killswitch": True}
 
 
 def test_apply_is_idempotent():
@@ -180,8 +143,8 @@ def test_apply_is_idempotent():
     appends_after_first = sum(1 for c in fake.calls if c[3] == "-A")
     eng.apply(1000, 9040, 53)  # second run must add nothing
     appends_total = sum(1 for c in fake.calls if c[3] == "-A")
-    assert appends_after_first == 5
-    assert appends_total == 5
+    assert appends_after_first == 7
+    assert appends_total == 7
 
 
 def test_apply_rolls_back_added_rules_on_failure():

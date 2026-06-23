@@ -5,6 +5,8 @@ markers; text outside the markers is preserved; writes are atomic."""
 
 from __future__ import annotations
 
+import os
+import stat
 import subprocess
 
 from torando_gui.config import TORRC_BEGIN, TORRC_END, Config
@@ -13,8 +15,43 @@ from torando_gui.netcfg import (
     lock_resolv,
     merge_torrc,
     render_torrc_block,
+    resolv_is_pinned,
+    restore_resolv,
     unlock_resolv,
 )
+
+
+def _ok_chattr(argv):
+    return subprocess.CompletedProcess(argv, 0, "", "")
+
+
+def test_resolv_pin_is_world_readable(tmp_path):
+    # Regression: mkstemp creates 0600 and os.replace keeps it, which would make
+    # resolv.conf root-only -> breaks DNS for non-root users. Must be 0644.
+    resolv = tmp_path / "resolv.conf"
+    resolv.write_text("nameserver 192.168.1.1\n")
+    resolv.chmod(0o644)
+    lock_resolv(Config(), path=resolv, runner=_ok_chattr, immutable=False)
+    mode = stat.S_IMODE(os.stat(resolv).st_mode)
+    assert mode == 0o644, oct(mode)
+    assert resolv.read_text() == "nameserver 127.0.0.1\n"
+    assert resolv_is_pinned(Config(), path=resolv) is True
+
+
+def test_restore_with_no_backup_is_safe(tmp_path):
+    # If the backup is gone but resolv is still pinned, restore must clear the
+    # lock (best effort) and report that it could not put a resolver back.
+    resolv = tmp_path / "resolv.conf"
+    resolv.write_text("nameserver 127.0.0.1\n")
+    out = restore_resolv(Config(), path=resolv, runner=_ok_chattr)
+    assert out["restored"] is False
+    assert "no backup" in out["note"]
+
+
+def test_resolv_not_pinned_for_real_resolver(tmp_path):
+    resolv = tmp_path / "resolv.conf"
+    resolv.write_text("# comment\nnameserver 1.1.1.1\n")
+    assert resolv_is_pinned(Config(), path=resolv) is False
 
 
 def test_render_contains_core_directives():

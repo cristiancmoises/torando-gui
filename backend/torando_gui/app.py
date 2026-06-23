@@ -22,7 +22,7 @@ from typing import Protocol
 
 from . import geoip, netcfg, netcheck, services
 from .config import Config, save
-from .engine import Engine, resolve_uid
+from .engine import RULE_COUNT, Engine, resolve_uid
 from .netcheck import ExitInfo
 from .torctl import Bootstrap, TorControl
 
@@ -45,6 +45,7 @@ class Backend(Protocol):
     def apply_torrc(self, cfg: Config) -> None: ...
     def lock_resolv(self, cfg: Config) -> dict[str, object]: ...
     def unlock_resolv(self, cfg: Config) -> dict[str, object]: ...
+    def resolv_is_pinned(self, cfg: Config) -> bool: ...
     def resolv_nameserver(self, path: str) -> str: ...
     def candidate_users(self) -> list[dict[str, object]]: ...
 
@@ -138,6 +139,9 @@ class SystemBackend:
     def unlock_resolv(self, cfg: Config) -> dict[str, object]:
         return netcfg.unlock_resolv(cfg)
 
+    def resolv_is_pinned(self, cfg: Config) -> bool:
+        return netcfg.resolv_is_pinned(cfg)
+
     def resolv_nameserver(self, path: str) -> str:
         try:
             for line in Path(path).read_text(encoding="utf-8").splitlines():
@@ -170,9 +174,9 @@ class MockBackend:
         self._active = False
 
     def rules_status(self, uid: int, trans: int, dns: int) -> dict[str, object]:
-        n = 5 if self._active else 0
+        n = RULE_COUNT if self._active else 0
         return {
-            "rules_total": 5,
+            "rules_total": RULE_COUNT,
             "rules_present": n,
             "active": self._active,
             "killswitch": self._active,
@@ -216,6 +220,9 @@ class MockBackend:
 
     def unlock_resolv(self, cfg: Config) -> dict[str, object]:
         return {"path": cfg.resolv_path, "restored": True}
+
+    def resolv_is_pinned(self, cfg: Config) -> bool:
+        return self._active
 
     def resolv_nameserver(self, path: str) -> str:
         return "127.0.0.1" if self._active else "192.168.1.1"
@@ -282,7 +289,12 @@ class App:
         rules = (
             self.backend.rules_status(uid, cfg.trans_port, cfg.dns_port)
             if uid is not None
-            else {"rules_total": 5, "rules_present": 0, "active": False, "killswitch": False}
+            else {
+                "rules_total": RULE_COUNT,
+                "rules_present": 0,
+                "active": False,
+                "killswitch": False,
+            }
         )
         boot = self.backend.control_bootstrap()
         ctl = self.backend.control_available()
@@ -328,48 +340,81 @@ class App:
             if not self.backend.iptables_available():
                 raise RuntimeError("iptables not available")
             self.log.emit("info", f"routing uid {cfg.target_uid} through Tor")
-            resolv_locked = False
+            rules_applied = False
             try:
+                # 1) Tor config (inert until reload; never fatal on Guix where
+                #    torrc is store-managed and management is disabled).
                 if cfg.manage_torrc:
                     self.backend.apply_torrc(cfg)
                     self.log.emit("info", "torrc managed block written")
                     res = self.backend.reload_tor()
                     self.log.emit("info" if res["ok"] else "warn", f"tor reload: {res}")
+                # 2) Firewall FIRST: this installs the DNS redirect + killswitch,
+                #    so by the time resolv.conf points at 127.0.0.1 the redirect
+                #    to Tor's DNSPort is already live.
+                self.backend.apply_rules(cfg.target_uid, cfg.trans_port, cfg.dns_port)
+                rules_applied = True
+                self.log.emit("info", "netfilter rules applied (killswitch armed)")
+                # 3) Pin DNS LAST. If anything above failed, resolv.conf was
+                #    never touched, so a failed connect never degrades host DNS.
                 if cfg.lock_resolv:
                     r = self.backend.lock_resolv(cfg)
-                    resolv_locked = True
                     self.log.emit("info", f"resolv.conf -> 127.0.0.1 (immutable={r['immutable']})")
-                self.backend.apply_rules(cfg.target_uid, cfg.trans_port, cfg.dns_port)
-                self.log.emit("info", "netfilter rules applied (killswitch armed)")
             except Exception:
-                # resolv.conf is pinned to 127.0.0.1 *before* the rules go in. If
-                # rule application then fails, leaving the pin in place would point
-                # the host's DNS at a local resolver that is not being fed by Tor
-                # (killswitch never armed) — breaking name resolution system-wide.
-                # Roll the pin back so a failed connect never degrades host DNS.
-                if resolv_locked:
-                    with contextlib.suppress(Exception):
+                # Roll everything back so a failed connect leaves the host
+                # exactly as it found it: rules removed, DNS restored.
+                with contextlib.suppress(Exception):
+                    if cfg.lock_resolv:
                         self.backend.unlock_resolv(cfg)
-                        self.log.emit("warn", "connect failed; resolv.conf restored")
+                    if rules_applied:
+                        self.backend.remove_rules(cfg.target_uid, cfg.trans_port, cfg.dns_port)
+                    self.log.emit("warn", "connect failed; rolled back rules + resolv.conf")
                 raise
             return self.status()
 
     def disconnect(self) -> dict[str, object]:
         with self._oplock:
             cfg = self.cfg
+            # Restore DNS FIRST and unconditionally (even if target_uid changed
+            # or rules are already gone) so the user always regains a working
+            # resolver — the #1 thing that must never be left broken.
+            r = self.backend.unlock_resolv(cfg)
+            note = f"; {r['note']}" if r.get("note") else ""
+            self.log.emit("info", f"resolv.conf restored (restored={r.get('restored')}{note})")
             if cfg.target_uid is not None:
                 self.backend.remove_rules(cfg.target_uid, cfg.trans_port, cfg.dns_port)
                 self.log.emit("info", "netfilter rules removed")
-            if cfg.lock_resolv:
-                r = self.backend.unlock_resolv(cfg)
-                self.log.emit("info", f"resolv.conf restored (restored={r['restored']})")
             return self.status()
+
+    def recover_orphaned_dns(self) -> None:
+        """At startup, if resolv.conf is still pinned to our loopback entry but
+        we are not actually routing (rules gone after a crash/kill/reboot),
+        restore the real resolver. Safe no-op when genuinely connected."""
+        cfg = self.cfg
+        try:
+            if not self.backend.resolv_is_pinned(cfg):
+                return
+            routing = False
+            if cfg.target_uid is not None:
+                st = self.backend.rules_status(cfg.target_uid, cfg.trans_port, cfg.dns_port)
+                routing = bool(st.get("killswitch"))
+            if routing:
+                return  # genuinely connected — leave the pin in place
+            res = self.backend.unlock_resolv(cfg)
+            self.log.emit("warn", f"recovered DNS from an orphaned session: {res}")
+        except Exception as exc:  # noqa: BLE001 — recovery must never crash startup
+            self.log.emit("warn", f"DNS recovery check failed: {exc}")
 
     def new_identity(self) -> dict[str, object]:
         with self._oplock:
             self.backend.new_identity()
             self.log.emit("info", "requested new Tor identity (NEWNYM)")
             return {"ok": True}
+
+    # Fields that define which rules are installed; changing them while routing
+    # would orphan the active killswitch (the GUI would target a different UID/
+    # ports and could never remove the old rules → a stranded user).
+    _ROUTING_FIELDS = ("target_uid", "trans_port", "dns_port")
 
     def update_config(self, patch: dict[str, object]) -> dict[str, object]:
         with self._oplock:
@@ -379,10 +424,30 @@ class App:
             _validate(new)
             if new.target_uid is not None:
                 resolve_uid(new.target_uid)  # raises if not a real account
+            # Refuse routing-relevant changes while connected: disconnect first.
+            if self._is_routing():
+                changed = [
+                    f for f in self._ROUTING_FIELDS if getattr(new, f) != getattr(self.cfg, f)
+                ]
+                if changed:
+                    raise RuntimeError(
+                        f"disconnect before changing {', '.join(changed)} "
+                        "(those define the active killswitch rules)"
+                    )
             self.cfg = new
             save(new, self._config_path)
             self.log.emit("info", "configuration updated")
             return self.status()
+
+    def _is_routing(self) -> bool:
+        cfg = self.cfg
+        if cfg.target_uid is None:
+            return False
+        try:
+            st = self.backend.rules_status(cfg.target_uid, cfg.trans_port, cfg.dns_port)
+            return bool(st.get("killswitch"))
+        except Exception:  # noqa: BLE001 — never block a config edit on a probe error
+            return False
 
     # --- SSE -----------------------------------------------------------
     def events(self, stop: threading.Event) -> Iterator[dict[str, object]]:

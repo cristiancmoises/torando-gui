@@ -4,7 +4,7 @@
 # Shared helpers for the per-format build scripts. Source this file.
 set -eu
 
-VERSION="1.0.1"
+VERSION="1.1.0"
 PKGNAME="torando-gui"
 
 # Resolve repo root regardless of where the script is invoked from.

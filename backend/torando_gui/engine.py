@@ -2,21 +2,29 @@
 # Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
 """Netfilter engine.
 
-This reproduces, exactly, the five rules of upstream torando.sh / toroff.sh,
-but builds them as argument vectors (never a shell string) and resolves the
-target user to a validated numeric UID. That removes the command-injection
-class that the upstream ``USERAQUI`` text-substitution exposed.
+This builds the per-UID transparent-torification + killswitch ruleset as
+argument vectors (never a shell string) and resolves the target user to a
+validated numeric UID. That removes the command-injection class that the
+upstream ``USERAQUI`` text-substitution exposed.
 
-Upstream behaviour reproduced (per-UID transparent torification + killswitch):
-  1. nat/OUTPUT    tcp                       -> REDIRECT to TransPort
-  2. nat/OUTPUT    udp dport 53              -> REDIRECT to DNSPort
-  3. filter/OUTPUT tcp dport TransPort       -> ACCEPT
-  4. filter/OUTPUT udp dport DNSPort         -> ACCEPT
-  5. filter/OUTPUT (everything else)         -> DROP   (the killswitch)
+The ruleset (per UID), in apply order:
+  1. nat/OUTPUT    -d 127.0.0.0/8            -> RETURN   (never torify loopback)
+  2. nat/OUTPUT    tcp                       -> REDIRECT to TransPort
+  3. nat/OUTPUT    udp dport 53              -> REDIRECT to DNSPort
+  4. filter/OUTPUT -o lo                     -> ACCEPT   (loopback stays local)
+  5. filter/OUTPUT tcp dport TransPort       -> ACCEPT
+  6. filter/OUTPUT udp dport DNSPort         -> ACCEPT
+  7. filter/OUTPUT (everything else)         -> DROP     (the killswitch)
 
-Added on top of upstream (correctness, not behaviour change): each rule is
-checked with ``-C`` before being appended, and apply() rolls back every rule
-it added if a later one fails, so the table is never left half-built.
+Rules 1 and 4 are the critical correction to the upstream five-rule script,
+which DROP'd the UID's loopback too — that broke the GUI's own connection to
+the daemon (both run on 127.0.0.1) and every local service the user relied on.
+Exempting loopback does not weaken the killswitch: 127.0.0.0/8 never leaves the
+host, so no clearnet egress is allowed. Tor's TransPort/DNSPort live on
+loopback, so the redirected traffic is covered by rule 4 as well.
+
+Each rule is checked with ``-C`` before being appended, and apply() rolls back
+every rule it added if a later one fails, so the table is never left half-built.
 """
 
 from __future__ import annotations
@@ -70,43 +78,36 @@ def resolve_uid(user_or_uid: str | int) -> int:
         raise EngineError(f"no such user: {user_or_uid!r}") from exc
 
 
+# Loopback network the redirect/killswitch must never touch.
+LOOPBACK_CIDR = "127.0.0.0/8"
+
+
 def build_rules(uid: int, trans_port: int, dns_port: int) -> list[Rule]:
-    """Return the five rules for *uid*, in apply order."""
+    """Return the per-UID ruleset, in apply order (see module docstring)."""
     if not isinstance(uid, int) or uid < 0:
         raise EngineError("build_rules requires a validated non-negative uid")
     for port in (trans_port, dns_port):
         if not 1 <= port <= 65535:
             raise EngineError(f"port out of range: {port}")
     u = str(uid)
+    owner = ("-m", "owner", "--uid-owner", u)
     return [
+        # 1. Never NAT loopback traffic (keeps 127.0.0.1:8088 -> daemon working).
+        Rule("nat", "OUTPUT", (*owner, "-d", LOOPBACK_CIDR, "-j", "RETURN")),
+        # 2. Redirect the UID's TCP to Tor's TransPort.
         Rule(
             "nat",
             "OUTPUT",
-            (
-                "-p",
-                "tcp",
-                "-m",
-                "owner",
-                "--uid-owner",
-                u,
-                "-m",
-                "tcp",
-                "-j",
-                "REDIRECT",
-                "--to-ports",
-                str(trans_port),
-            ),
+            (*owner, "-p", "tcp", "-m", "tcp", "-j", "REDIRECT", "--to-ports", str(trans_port)),
         ),
+        # 3. Redirect the UID's DNS (UDP/53) to Tor's DNSPort.
         Rule(
             "nat",
             "OUTPUT",
             (
+                *owner,
                 "-p",
                 "udp",
-                "-m",
-                "owner",
-                "--uid-owner",
-                u,
                 "-m",
                 "udp",
                 "--dport",
@@ -117,44 +118,28 @@ def build_rules(uid: int, trans_port: int, dns_port: int) -> list[Rule]:
                 str(dns_port),
             ),
         ),
+        # 4. Accept the UID's loopback output (GUI <-> daemon, local services,
+        #    and the redirected Tor traffic which lands on 127.0.0.1).
+        Rule("filter", "OUTPUT", (*owner, "-o", "lo", "-j", "ACCEPT")),
+        # 5. Accept the UID's TCP that is being torified (post-REDIRECT).
         Rule(
             "filter",
             "OUTPUT",
-            (
-                "-p",
-                "tcp",
-                "-m",
-                "owner",
-                "--uid-owner",
-                u,
-                "-m",
-                "tcp",
-                "--dport",
-                str(trans_port),
-                "-j",
-                "ACCEPT",
-            ),
+            (*owner, "-p", "tcp", "-m", "tcp", "--dport", str(trans_port), "-j", "ACCEPT"),
         ),
+        # 6. Accept the UID's DNS that is being torified (post-REDIRECT).
         Rule(
             "filter",
             "OUTPUT",
-            (
-                "-p",
-                "udp",
-                "-m",
-                "owner",
-                "--uid-owner",
-                u,
-                "-m",
-                "udp",
-                "--dport",
-                str(dns_port),
-                "-j",
-                "ACCEPT",
-            ),
+            (*owner, "-p", "udp", "-m", "udp", "--dport", str(dns_port), "-j", "ACCEPT"),
         ),
-        Rule("filter", "OUTPUT", ("-m", "owner", "--uid-owner", u, "-j", "DROP")),
+        # 7. Killswitch: drop everything else from the UID (fail closed).
+        Rule("filter", "OUTPUT", (*owner, "-j", "DROP")),
     ]
+
+
+# Number of rules build_rules() emits (kept in sync by test_engine).
+RULE_COUNT = 7
 
 
 class Engine:

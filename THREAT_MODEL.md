@@ -35,10 +35,17 @@ iptables rules by hand, plus torrc/resolv.conf management and a status view.
 
 1. **Accidental clearnet egress for the chosen UID.** The final `DROP` rule
    means that if Tor is down or the redirect is removed, that UID's traffic is
-   dropped, not sent in the clear. This is the killswitch.
+   dropped, not sent in the clear. This is the killswitch. Loopback
+   (`127.0.0.0/8`) is explicitly accepted *before* the drop, so the killswitch
+   never blocks local IPC (including the GUI's own connection to the daemon) —
+   loopback never leaves the host, so this does not weaken the guarantee.
 2. **Local DNS leakage.** UDP/53 from the UID is redirected to Tor's `DNSPort`
    and `resolv.conf` is pinned to `127.0.0.1` (optionally made immutable with
-   `chattr +i`), so name resolution does not bypass Tor.
+   `chattr +i`), so name resolution does not bypass Tor. The pin is written
+   **world-readable (0644)** and the client's real resolver is captured first,
+   so disconnect always restores working DNS; a crash/kill/reboot is recovered
+   on next daemon start, and `torando-guid --restore-dns` is a manual escape
+   hatch — DNS is never left stranded.
 3. **Browser/page-based attacks on the control surface.** The local API
    requires a per-session token injected into the page by the server; no CORS
    headers are ever sent (a foreign origin's JS cannot read the token or use

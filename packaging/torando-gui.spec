@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
 Name:           torando-gui
-Version:        1.0.1
+Version:        1.1.0
 Release:        1%{?dist}
 Summary:        Route a user's egress through Tor (transparent proxy + killswitch)
 
@@ -14,7 +14,12 @@ Requires:       tor
 Requires:       iptables
 Requires:       e2fsprogs
 Requires:       polkit
-Recommends:     python3-pillow
+# Native desktop GUI (GTK4 + WebKitGTK). Optional: without them the launcher
+# falls back to opening the UI in the browser.
+Recommends:     python3-gobject
+Recommends:     gtk4
+Recommends:     webkitgtk6.0
+Suggests:       python3-pillow
 
 %description
 Loopback web GUI that forces one local user's traffic through Tor's

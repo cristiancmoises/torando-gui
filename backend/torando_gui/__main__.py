@@ -39,6 +39,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mock", action="store_true", help="UI preview backend; no root, no Tor")
     p.add_argument("--open", action="store_true", help="open the GUI in a browser on start")
     p.add_argument("--no-token-file", action="store_true", help="do not write the token to /run")
+    p.add_argument(
+        "--restore-dns",
+        action="store_true",
+        help="emergency: clear the resolv.conf lock and restore the real resolver, then exit",
+    )
     p.add_argument("--version", action="version", version=f"torando-gui {__version__}")
     return p
 
@@ -51,6 +56,16 @@ def main(argv: list[str] | None = None) -> int:
         cfg.host = args.host
     if args.port:
         cfg.port = args.port
+
+    # Emergency DNS recovery: undo a resolv.conf pin/lock and exit. Needs root
+    # but no Tor and no server — the escape hatch when a session left DNS down.
+    if args.restore_dns:
+        from . import netcfg
+
+        res = netcfg.restore_resolv(cfg)
+        print(f"resolv.conf restore: {res}", file=sys.stderr)
+        return 0 if res.get("restored") or not res.get("note") else 1
+
     if cfg.host != "127.0.0.1" and not args.mock:
         print(
             "refusing to bind a non-loopback address; this daemon is root-equivalent",
@@ -61,6 +76,12 @@ def main(argv: list[str] | None = None) -> int:
     token = _new_token(config.RUNTIME_DIR, write_file=not args.no_token_file and not args.mock)
     backend = MockBackend() if args.mock else SystemBackend(cfg.host_socks(), cfg.control_port)
     app = App(cfg, backend, token, mock=args.mock, config_path=cfg_path)
+
+    # If a previous session crashed/was killed while connected, resolv.conf may
+    # still be pinned even though we are no longer routing. Restore it on start
+    # so the host is never stranded without DNS.
+    if not args.mock:
+        app.recover_orphaned_dns()
 
     httpd = make_server(app, cfg.host, cfg.port)
     url = f"http://{cfg.host}:{cfg.port}/"

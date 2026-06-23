@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
-"""Desktop launcher.
+"""Desktop launcher / entry point for the user-facing GUI.
 
-Opens the Torando Control UI in the default browser. The backend needs root
-(it edits netfilter, torrc and resolv.conf), so this launcher does not start it
-directly when run unprivileged: it asks systemd to start the system service —
-which polkit can authorize for a desktop user — then waits for the local
-endpoint to answer and opens it. The session token is injected into the page by
-the server, so the launcher never needs to read or handle it.
+``main`` opens the **native desktop window** (GTK4 + WebKitGTK — see
+``desktop.py``); if the GUI toolkit isn't installed it falls back to opening the
+UI in the default browser. Either way it first makes sure the root daemon is
+running: the backend needs root (it edits netfilter, torrc and resolv.conf), so
+an unprivileged launch asks the init system to start the system service (systemd
+via polkit, or — on Guix System — the Shepherd service), waits for the loopback
+endpoint to answer, and then shows it. The session token is injected into the
+page by the server, so the launcher never reads or handles it.
 """
 
 from __future__ import annotations
@@ -57,7 +59,8 @@ def _start_service() -> str:
     return ""
 
 
-def main(argv: list[str] | None = None) -> int:
+def ensure_daemon() -> tuple[bool, str]:
+    """Make a best effort to have the daemon reachable. Returns (reachable, hint)."""
     url = _url()
     start_error = ""
     if not _reachable(url):
@@ -66,16 +69,41 @@ def main(argv: list[str] | None = None) -> int:
             if _reachable(url):
                 break
             time.sleep(0.5)
-    if not _reachable(url):
-        detail = f"systemctl: {start_error}\n" if start_error else ""
-        sys.stderr.write(
-            "Torando Control backend is not reachable at "
-            f"{url}\n{detail}Start it with:  sudo systemctl start torando-gui.service\n"
-        )
+    if _reachable(url):
+        return True, ""
+    # Build a distro-appropriate hint for the failure surface.
+    if shutil.which("systemctl"):
+        hint = "Start it with:  sudo systemctl start torando-gui.service"
+    elif shutil.which("herd"):
+        hint = "Start it with:  sudo herd start torando-gui   (Guix System)"
+    else:
+        hint = "Start the daemon as root:  sudo torando-guid"
+    if start_error:
+        hint = f"{start_error}\n{hint}"
+    return False, hint
+
+
+def open_in_browser(argv: list[str] | None = None) -> int:
+    """Fallback path: ensure the daemon is up and open the UI in a browser."""
+    url = _url()
+    ok, hint = ensure_daemon()
+    if not ok:
+        sys.stderr.write(f"Torando Control backend is not reachable at {url}\n{hint}\n")
         return 1
     webbrowser.open(url)
     sys.stdout.write(f"Torando Control: {url}\n")
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Open the native desktop window; fall back to the browser if GTK/WebKit
+    is unavailable, or if --browser is passed."""
+    args = list(argv if argv is not None else sys.argv[1:])
+    if "--browser" in args:
+        return open_in_browser(args)
+    from . import desktop
+
+    return desktop.run(args)
 
 
 if __name__ == "__main__":

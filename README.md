@@ -4,34 +4,47 @@
 [![Python ≥ 3.11](https://img.shields.io/badge/python-%E2%89%A5%203.11-blue.svg)](pyproject.toml)
 [![No third-party deps](https://img.shields.io/badge/dependencies-stdlib%20only-success.svg)](pyproject.toml)
 
-A loopback web GUI that routes one Linux user's egress through Tor as a
+A **native desktop app** (GTK4 + WebKitGTK — like the Mullvad VPN app's shell,
+not a browser tab) that routes one Linux user's egress through Tor as a
 transparent proxy, with a killswitch. It automates the upstream
 [`torando`](https://github.com/cristiancmoises/torando) iptables setup
 (`torando.sh`/`toroff.sh`) and the `torrc`/`resolv.conf` edits its README
 describes, and adds live status, DNS-leak and exit checks, and safe rule
-management.
+management. (No GTK stack installed? The launcher falls back to your browser —
+same UI.)
 
 Read [THREAT_MODEL.md](THREAT_MODEL.md) first. In particular: this is **not**
 Tor Browser and does not provide Tor Browser's anonymity set — it routes
 packets, it does not anonymize application fingerprints.
+
+**Docs:** [Usage](docs/USAGE.md) · [Security architecture](docs/SECURITY.md) ·
+[Performance](docs/PERFORMANCE.md) · [Threat model](THREAT_MODEL.md) ·
+[Changelog](CHANGELOG.md)
+
+> **Architecture.** A small **root daemon** (`torando-guid`, pure stdlib) does
+> all privileged work and serves a loopback API; an **unprivileged GUI**
+> (`torando-gui`) talks to it over `127.0.0.1` only. The GUI has no privileges.
 
 > **Repositories.** Canonical on **Codeberg**, mirrored to GitHub and a
 > self-hosted Forgejo:
 > [codeberg.org/cristiancmoises/torando-gui](https://codeberg.org/cristiancmoises/torando-gui)
 > · [github.com/cristiancmoises/torando-gui](https://github.com/cristiancmoises/torando-gui)
 > · [git.securityops.co/cristiancmoises/torando-gui](https://git.securityops.co/cristiancmoises/torando-gui).
-> See [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md) and
-> [SECURITY.md](SECURITY.md).
+> See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ## How it works
 
-The daemon reproduces the upstream five-rule ruleset for a chosen UID:
+The daemon installs a per-UID transparent-proxy + killswitch ruleset (loopback
+is exempt so the GUI and local services keep working — see
+[docs/SECURITY.md](docs/SECURITY.md)):
 
-1. `nat/OUTPUT` — TCP from the UID → `REDIRECT` to Tor `TransPort` (9040)
-2. `nat/OUTPUT` — UDP/53 from the UID → `REDIRECT` to Tor `DNSPort` (53)
-3. `filter/OUTPUT` — TCP to `TransPort` → `ACCEPT`
-4. `filter/OUTPUT` — UDP to `DNSPort` → `ACCEPT`
-5. `filter/OUTPUT` — anything else from the UID → `DROP` (the killswitch)
+1. `nat/OUTPUT` — to `127.0.0.0/8` → `RETURN` (never torify loopback)
+2. `nat/OUTPUT` — TCP from the UID → `REDIRECT` to Tor `TransPort` (9040)
+3. `nat/OUTPUT` — UDP/53 from the UID → `REDIRECT` to Tor `DNSPort`
+4. `filter/OUTPUT` — output on `lo` → `ACCEPT` (loopback stays local)
+5. `filter/OUTPUT` — TCP to `TransPort` → `ACCEPT`
+6. `filter/OUTPUT` — UDP to `DNSPort` → `ACCEPT`
+7. `filter/OUTPUT` — anything else from the UID → `DROP` (the killswitch)
 
 It also writes a marker-delimited block into `/etc/tor/torrc`
 (`VirtualAddrNetwork`, `AutomapHostsOnResolve`, `TransPort`, `DNSPort`,

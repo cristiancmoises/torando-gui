@@ -45,14 +45,21 @@ def _fsync_dir(directory: Path) -> None:
         os.close(fd)
 
 
-def atomic_write_text(path: Path, content: str) -> None:
-    """Write *content* to *path* atomically and durably.
+def atomic_write_text(path: Path, content: str, *, mode: int = 0o644) -> None:
+    """Write *content* to *path* atomically, durably, and with a sane mode.
 
     Temp file in the same directory, ``fsync`` the data, then ``os.replace``
     (an atomic rename), then ``fsync`` the parent directory.  Without the
     fsyncs a crash between the write and the metadata flush can publish a
     zero-length or truncated file — fatal when the target is
     ``/etc/resolv.conf`` or the daemon's config.
+
+    ``tempfile.mkstemp`` creates the temp file 0600 and ``os.replace`` keeps
+    that mode, which silently makes ``/etc/resolv.conf`` (and torrc)
+    root-only-readable — breaking DNS for every non-root user until they
+    ``chmod`` it back by hand.  So the file is always chmod'd to *mode* (0644
+    by default: the conventional, world-readable mode for these files) before
+    the rename, regardless of any broken mode a previous write may have left.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
@@ -61,6 +68,7 @@ def atomic_write_text(path: Path, content: str) -> None:
             fh.write(content)
             fh.flush()
             os.fsync(fh.fileno())
+        os.chmod(tmp, mode)  # mkstemp made it 0600; force the intended mode
         os.replace(tmp, path)
         tmp = None  # ownership transferred; do not unlink in finally
         _fsync_dir(path.parent)
@@ -114,15 +122,31 @@ class Config:
 
 
 def load(path: Path = CONFIG_FILE) -> Config:
-    """Load config, returning defaults if the file is absent or empty."""
+    """Load config, returning safe defaults if the file is absent, empty,
+    unreadable, or malformed.
+
+    The daemon must never fail to start because of a bad config file: a missing
+    file, a permission error, a directory in the way, or invalid JSON all fall
+    back to built-in defaults rather than crashing (which, mid-session, could
+    leave the firewall/DNS in a half-applied state with no way to recover via
+    the UI).
+    """
     try:
         raw = path.read_text(encoding="utf-8")
-    except (FileNotFoundError, IsADirectoryError):
+    except OSError:
+        # FileNotFoundError, IsADirectoryError, PermissionError, … — all safe
+        # to treat as "no usable config; use defaults".
         return Config()
     raw = raw.strip()
     if not raw:
         return Config()
-    return Config.from_dict(json.loads(raw))
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return Config()
+    if not isinstance(data, dict):
+        return Config()
+    return Config.from_dict(data)
 
 
 def save(cfg: Config, path: Path = CONFIG_FILE) -> None:

@@ -4,6 +4,53 @@ All notable changes to **Torando Control** are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-06-23
+
+A native desktop app, and the fixes for the bugs that could break connectivity.
+
+### Fixed — critical
+- **Killswitch no longer drops the torified user's loopback.** The ruleset now
+  exempts `127.0.0.0/8` (a `RETURN` in nat and an `-o lo` `ACCEPT` before the
+  `DROP`). Previously, the moment you connected, the killswitch dropped the
+  user's loopback — cutting the GUI off from its own daemon and breaking every
+  local service. The ruleset grew from 5 to 7 rules.
+- **resolv.conf is written world-readable (0644).** The atomic writer used
+  `mkstemp` (0600) and `os.replace` kept it, silently making `/etc/resolv.conf`
+  root-only — so DNS broke for your normal user *even after disconnect*, forcing
+  a manual edit. Now always `0644`.
+- **DNS is never left stranded.** connect() pins `resolv.conf` **last** (after
+  the redirect is live) and rolls back rules + DNS on any failure; disconnect
+  restores the real resolver first and unconditionally; the daemon
+  **auto-recovers** an orphaned pin on startup (crash/kill/reboot); and
+  `torando-guid --restore-dns` is a one-shot manual escape hatch. The captured
+  resolver is refreshed each connect (tracks DHCP changes).
+- **A bad/unreadable `config.json` no longer crashes the daemon** (e.g.
+  `PermissionError`) — it falls back to safe defaults.
+- **Routing fields are locked while connected.** Changing `target_uid` /
+  `trans_port` / `dns_port` mid-session would orphan the active killswitch; the
+  app now refuses until you disconnect.
+
+### Added — native desktop app
+- **`torando-gui` opens a real application window** (GTK4 + WebKitGTK via
+  PyGObject), like the Mullvad desktop shell — its own window, icon and taskbar
+  entry, no browser chrome. If the GTK stack is absent it falls back to the
+  browser (`torando-gui --browser` forces it). The window is unprivileged and
+  talks to the daemon over loopback only. New module `torando_gui/desktop.py`.
+- GTK4/WebKitGTK/PyGObject declared as **optional** deps (deb `Recommends`, rpm
+  `Recommends`, Arch `optdepends`, `pip install torando-gui[gui]`).
+
+### Docs
+- New deep docs: [docs/USAGE.md](docs/USAGE.md),
+  [docs/SECURITY.md](docs/SECURITY.md) (security architecture),
+  [docs/PERFORMANCE.md](docs/PERFORMANCE.md). THREAT_MODEL/README updated for the
+  new ruleset and the DNS safety contract.
+
+### Tests
+- New/updated regression tests for the 7-rule set and loopback ordering, the
+  0644 resolv mode, connect/disconnect/recovery invariants, the routing-field
+  lock, and config robustness. (Server tests require loopback HTTP, unavailable
+  in some sandboxes; the rest run anywhere.)
+
 ## [1.0.1] — 2026-06-23
 
 A correctness, robustness and packaging pass. No behaviour changes for a
