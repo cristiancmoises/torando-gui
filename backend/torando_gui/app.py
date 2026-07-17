@@ -349,12 +349,22 @@ class App:
             rules_applied = False
             try:
                 # 1) Tor config (inert until reload; never fatal on Guix where
-                #    torrc is store-managed and management is disabled).
+                #    torrc is store-managed and management is disabled). On Linux
+                #    this also (re)starts tor; on Windows the bundled Tor task
+                #    owns the torrc so this is skipped.
                 if cfg.manage_torrc:
                     self.backend.apply_torrc(cfg)
                     self.log.emit("info", "torrc managed block written")
                     res = self.backend.reload_tor()
                     self.log.emit("info" if res["ok"] else "warn", f"tor reload: {res}")
+                # 1b) Tor MUST be listening before we arm anything. Arming the
+                #    killswitch + system proxy while Tor is down would leave the
+                #    host with no working egress and no DNS — the worst outcome.
+                if not self._tor_listening(cfg):
+                    raise RuntimeError(
+                        f"Tor is not listening on {cfg.host_socks()}:{cfg.socks_port} — "
+                        "start Tor first (Windows: the TorandoGUI-Tor task), then Connect."
+                    )
                 # 2) Firewall FIRST: this arms the killswitch (and, on Linux, the
                 #    DNS redirect), so by the time resolv.conf points at 127.0.0.1
                 #    the path to Tor's DNSPort is already live.
@@ -413,9 +423,33 @@ class App:
         except Exception as exc:  # noqa: BLE001 — recovery must never crash startup
             self.log.emit("warn", f"DNS recovery check failed: {exc}")
 
+    def _tor_listening(self, cfg: Config) -> bool:
+        """True if Tor's SocksPort accepts a connection. Mock mode is always OK
+        (no Tor). Retries briefly so a just-(re)started tor has time to open the
+        port. Used to refuse arming the killswitch while Tor is down."""
+        if self.mock:
+            return True
+        import socket
+        import time
+
+        for attempt in range(6):  # ~6 x 0.5s = 3s
+            try:
+                with socket.create_connection((cfg.host_socks(), cfg.socks_port), timeout=2):
+                    return True
+            except OSError:
+                if attempt < 5:
+                    time.sleep(0.5)
+        return False
+
     def new_identity(self) -> dict[str, object]:
         with self._oplock:
-            self.backend.new_identity()
+            try:
+                self.backend.new_identity()
+            except OSError as exc:
+                # No ControlPort (e.g. the bundled Windows Tor) or Tor down —
+                # don't 500 the UI; report it and move on.
+                self.log.emit("warn", f"new identity unavailable: {exc}")
+                return {"ok": False, "error": "Tor control port not available"}
             self.log.emit("info", "requested new Tor identity (NEWNYM)")
             return {"ok": True}
 

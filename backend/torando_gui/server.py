@@ -34,6 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from urllib.parse import parse_qs, urlsplit
 
+from . import platform as _plat
 from .app import App
 
 _STATIC = {
@@ -288,6 +289,11 @@ def make_server(app: App, host: str, port: int) -> ThreadingHTTPServer:
             except Exception as exc:  # noqa: BLE001
                 self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
 
-    httpd = ThreadingHTTPServer((host, port), Handler)
-    httpd.daemon_threads = True
-    return httpd
+    # On Windows SO_REUSEADDR lets a second daemon silently co-bind the same
+    # 127.0.0.1:8088 (unlike Linux), which would let a stale instance keep
+    # serving a stale token. Bind exclusively there so a second start fails loudly.
+    class _Server(ThreadingHTTPServer):
+        allow_reuse_address = not _plat.is_windows()
+        daemon_threads = True
+
+    return _Server((host, port), Handler)

@@ -25,16 +25,29 @@ function Assert-Admin {
 }
 Assert-Admin
 
-$currentUser = "$env:USERDOMAIN\$env:USERNAME"
 if ($env:USERNAME -eq "SYSTEM") {
     throw "Run install.ps1 from your own (elevated) account, not as SYSTEM — the daemon must run as the desktop user to set the per-user proxy."
 }
+# Identify the desktop user by SID — works for local, Microsoft-account and
+# Entra/AzureAD logins where USERDOMAIN\USERNAME does not resolve for a task.
+$currentSid  = ([Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
+$currentUser = "$env:USERDOMAIN\$env:USERNAME"
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Write-Host "Installing Torando Control (all-in-one) to $InstallDir  [daemon user: $currentUser]"
+
+# If an old install exists, stop its tasks and remove the payload dirs FIRST.
+# Otherwise Copy-Item -Recurse into an existing folder NESTS (python\python\...),
+# leaving the stale, broken files in place — so a reinstall-to-fix does nothing.
+foreach ($t in @("TorandoGUI-Daemon", "TorandoGUI-Tor")) {
+    Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
+}
+Start-Sleep -Milliseconds 500
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 foreach ($d in @("python", "tor", "lib", "boot")) {
-    Copy-Item -Recurse -Force "$here\$d" $InstallDir
+    $dest = Join-Path $InstallDir $d
+    Remove-Item -Recurse -Force $dest -ErrorAction SilentlyContinue
+    Copy-Item -Recurse -Force "$here\$d" $dest
 }
 foreach ($f in @("torando-guid.cmd", "torando-gui.cmd", "torrc.template", "uninstall.ps1")) {
     Copy-Item -Force "$here\$f" $InstallDir
@@ -73,7 +86,9 @@ if (-not (Test-Path $cfgFile)) {
         ipv6_killswitch     = $true
         tor_path            = $torExe
     }
-    ($cfg | ConvertTo-Json) | Set-Content -Encoding UTF8 $cfgFile
+    # Write UTF-8 WITHOUT a BOM — PowerShell's `Set-Content -Encoding UTF8` adds
+    # one, which makes the daemon's json.loads fail and drop the whole config.
+    [System.IO.File]::WriteAllText($cfgFile, ($cfg | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "Seeded $cfgFile"
 }
 
@@ -88,32 +103,43 @@ $torAction = New-ScheduledTaskAction -Execute $torExe -Argument "-f `"$torrcPath
 Register-ScheduledTask -TaskName "TorandoGUI-Tor" -Action $torAction `
     -Trigger (New-ScheduledTaskTrigger -AtStartup) -Principal $torPrincipal -Settings $settings -Force | Out-Null
 
-# 2) Daemon — YOU, elevated, at logon (so it sets your per-user proxy).
-$daemonPrincipal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Highest
+# 2) Daemon — YOU, elevated, at logon (so it sets your per-user proxy). Use the
+#    SID so it resolves for local / Microsoft-account / Entra logins alike.
+$daemonPrincipal = New-ScheduledTaskPrincipal -UserId $currentSid -LogonType Interactive -RunLevel Highest
 $daemonAction = New-ScheduledTaskAction -Execute $pyw -Argument "`"$daemonPy`"" -WorkingDirectory $InstallDir
 Register-ScheduledTask -TaskName "TorandoGUI-Daemon" -Action $daemonAction `
-    -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $currentUser) `
+    -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $currentSid) `
     -Principal $daemonPrincipal -Settings $settings -Force | Out-Null
 
 Start-ScheduledTask -TaskName "TorandoGUI-Tor"
 Start-Sleep -Seconds 2
 Start-ScheduledTask -TaskName "TorandoGUI-Daemon"
 
-# Health check: wait for the daemon to answer on loopback.
-Write-Host -NoNewline "Waiting for the daemon"
-$ok = $false
-foreach ($i in 1..20) {
+function Test-Port($p) {
+    try { $c = New-Object Net.Sockets.TcpClient; $c.Connect("127.0.0.1", $p); $c.Close(); return $true }
+    catch { return $false }
+}
+
+# Health check: wait for BOTH the daemon (8088) and bundled Tor's SocksPort (9050).
+Write-Host -NoNewline "Waiting for the daemon and Tor"
+$daemonUp = $false; $torUp = $false
+foreach ($i in 1..24) {
     Start-Sleep -Milliseconds 750
     Write-Host -NoNewline "."
-    try {
-        (New-Object Net.Sockets.TcpClient).Connect("127.0.0.1", 8088); $ok = $true; break
-    } catch { }
+    if (-not $daemonUp) { $daemonUp = Test-Port 8088 }
+    if (-not $torUp)    { $torUp    = Test-Port 9050 }
+    if ($daemonUp -and $torUp) { break }
 }
 Write-Host ""
-if ($ok) {
-    Write-Host "Installed and running. Open the app:  $InstallDir\torando-gui.cmd"
+if ($daemonUp -and $torUp) {
+    Write-Host "Installed and running (daemon + Tor up). Open the app:  $InstallDir\torando-gui.cmd"
 } else {
-    Write-Warning "The daemon did not answer on 127.0.0.1:8088 yet."
-    Write-Warning "Check the log:  $logDir\daemon.log"
-    Write-Host    "Then open:  $InstallDir\torando-gui.cmd"
+    if (-not $daemonUp) {
+        Write-Warning "The daemon did not answer on 127.0.0.1:8088."
+        Write-Warning "Check the log:  $logDir\daemon.log"
+    }
+    if (-not $torUp) {
+        Write-Warning "Tor did not open its SocksPort on 127.0.0.1:9050 (check that port 53/9050 are free)."
+    }
+    Write-Host "You can still try:  $InstallDir\torando-gui.cmd"
 }

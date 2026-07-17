@@ -4,6 +4,55 @@ All notable changes to **Torando Control** are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.2] — 2026-07-17
+
+A deep adversarial review of the Windows path (15 confirmed bugs) — this is the
+release where the all-in-one actually works, including on non-English Windows.
+
+### Fixed — Windows showstoppers
+- **A BOM'd `config.json` was silently dropped.** `install.ps1` wrote the config
+  with a UTF-8 BOM (PowerShell's `Set-Content -Encoding UTF8`), and the daemon's
+  JSON load then failed and fell back to *defaults* — losing `tor_path` and
+  leaving `manage_torrc=true`, so Connect failed with "tor.exe not found". Now
+  `config.load` reads `utf-8-sig` (BOM-tolerant) **and** the installer writes no
+  BOM.
+- **Re-installing to fix a broken install did nothing.** `Copy-Item -Recurse`
+  into an existing folder *nests* it (`python\python\…`), so the updated files
+  landed in a subfolder while the tasks kept running the stale copy. The
+  installer now removes each payload dir before copying (and stops the tasks
+  first). This likely defeated the earlier fixes on re-test.
+- **Total DNS outage on non-English Windows.** DNS-interface enumeration filtered
+  on the *localized* `State` column, so nothing got pinned while port-53 egress
+  was blocked → no DNS at all. Enumeration is now locale-independent (numeric
+  Idx), and DHCP adapters are no longer misparsed as static (which had frozen
+  them onto a stale resolver on restore).
+- **Firewall policy parsing/ restore was English-only.** `netsh advfirewall show
+  allprofiles` is localized; parsing returned `{}` on translated Windows, so
+  restore rewrote every profile to `blockinbound,allowoutbound` (destroying the
+  real inbound policy) and status reported the killswitch off while it was on.
+  Parsing now keys on the language-neutral policy *value* by profile order.
+
+### Fixed — Windows correctness
+- `render_torrc_block` no longer emits `TransPort` on Windows (tor.exe rejects
+  it and won't start).
+- `connect()` now verifies Tor is actually listening on the SocksPort (with a
+  short retry) before arming the killswitch/proxy — arming while Tor is down
+  would have bricked egress and DNS.
+- `new_identity()` no longer 500s when there's no ControlPort (the bundled Tor).
+- The WinINET proxy now sets `ProxyOverride=<local>` so the UI/loopback/intranet
+  bypass Tor's SOCKS (which rejects private targets), and it is captured/restored.
+- `uninstall.ps1` does a **full teardown** (`--disconnect`: firewall + proxy +
+  DNS) and force-clears the proxy, so removal never leaves the browser pointed at
+  a dead SOCKS proxy; it also waits for the daemon to exit before deleting.
+- The daemon task is registered by **SID** (works for local / Microsoft-account /
+  Entra logins), and `install.ps1` health-checks both the daemon (8088) and Tor
+  (9050).
+- The server disables `SO_REUSEADDR` co-binding on Windows.
+
+### Tests
+- New regression tests: BOM-tolerant config load, locale-independent interface
+  enumeration, DHCP-not-captured-as-static. 154 tests, green.
+
 ## [1.3.1] — 2026-07-17
 
 Makes the Windows all-in-one actually run. 1.3.0 shipped the bundle but three
@@ -278,6 +327,7 @@ Initial release.
   SOCKS framing, exit-check invariants, config, `torrc`/`resolv` editing and the
   server's access controls.
 
+[1.3.2]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.2
 [1.3.1]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.1
 [1.3.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.0
 [1.2.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.2.0

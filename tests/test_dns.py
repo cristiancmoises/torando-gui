@@ -34,7 +34,7 @@ def test_parse_dns_servers_static():
     assert dns.parse_dns_servers("127.0.0.1\n9.9.9.9\n") == ["127.0.0.1", "9.9.9.9"]
 
 
-def test_parse_interface_names_connected_only():
+def test_parse_interface_names_locale_independent():
     out = (
         "Idx     Met         MTU          State                Name\n"
         "---  ----------  ----------  ------------  ---------------------------\n"
@@ -44,8 +44,18 @@ def test_parse_interface_names_connected_only():
     )
     names = dns.parse_interface_names(out)
     assert "Wi-Fi" in names
-    assert "Loopback Pseudo-Interface 1" in names
-    assert "Ethernet 2" not in names
+    assert "Ethernet 2" in names  # not filtered on State (setting DNS on it is harmless)
+    assert "Loopback Pseudo-Interface 1" not in names  # loopback excluded
+    # A localized State column must not drop every interface (the DNS-outage bug):
+    localized = "  5          25        1500  Verbunden     Wi-Fi\n"
+    assert dns.parse_interface_names(localized) == ["Wi-Fi"]
+
+
+def test_parse_dns_config_dhcp_with_ip_is_not_captured_as_static():
+    # netsh prints the DHCP-assigned server ON the DHCP line; capturing it as
+    # static would freeze the adapter onto that resolver on restore.
+    txt = "DNS servers configured through DHCP:  192.168.1.1\n"
+    assert dns.parse_dns_config(txt) == {"dhcp": True, "servers": []}
 
 
 # --- FileDns (Linux vs BSD immutability command) ----------------------------

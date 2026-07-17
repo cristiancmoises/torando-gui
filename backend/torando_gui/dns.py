@@ -184,25 +184,23 @@ class MacDns:
 
 # --- Windows netsh -----------------------------------------------------------
 def parse_interface_names(text: str) -> list[str]:
-    """Connected interface names from ``netsh interface ipv4 show interfaces``.
+    """Interface names from ``netsh interface ipv4 show interfaces``.
 
-    The table has a header and a separator row; the interface name is everything
-    from the 5th column on. Only ``connected`` interfaces are returned. NOTE: the
-    ``State`` column is localized on non-English Windows, so this can return []
-    there — callers must treat an empty result as "pinned nothing", not success.
+    LOCALE-INDEPENDENT: the header and the ``State`` column are translated on
+    non-English Windows, so we key only on the numeric ``Idx`` column (the first
+    token being an integer marks a data row) and take the name from the 5th
+    column on. We deliberately do NOT filter on ``State`` — setting DNS on a
+    down adapter is harmless, and filtering on the (localized) State word is
+    exactly what caused a total DNS outage on non-English Windows. Loopback is
+    skipped.
     """
     names: list[str] = []
     for line in text.splitlines():
         cols = line.split()
-        if len(cols) < 5:
-            continue
-        if cols[0] == "Idx" or set(line.strip()) <= {"-"}:
-            continue
-        state = cols[3].lower()
-        if state != "connected":
+        if len(cols) < 5 or not cols[0].isdigit():
             continue
         name = " ".join(cols[4:])
-        if name:
+        if name and "loopback" not in name.lower():
             names.append(name)
     return names
 
@@ -211,17 +209,21 @@ def parse_dns_config(text: str) -> dict:
     """Parse ``netsh interface ipv4 show dnsservers name="X"`` into
     ``{"dhcp": bool, "servers": [ip, ...]}``.
 
-    Static config lists 'Statically Configured DNS Servers: <ip>' (plus extra
-    indented ips); DHCP config says 'DNS servers configured through DHCP'.
+    The ``DNS servers configured through DHCP`` line is authoritative: when it is
+    present the interface is DHCP and its servers must NOT be captured as static
+    (netsh prints the DHCP-assigned server on that same line, and treating it as
+    static would permanently freeze the adapter onto that resolver on restore).
+    Only ``Statically Configured DNS Servers`` are captured as static.
     """
-    dhcp = "through DHCP" in text or "through dhcp" in text.lower()
+    if "through DHCP" in text or "through dhcp" in text.lower():
+        return {"dhcp": True, "servers": []}
     servers: list[str] = []
     for line in text.splitlines():
         for tok in line.replace(":", " ").split():
             parts = tok.split(".")
             if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
                 servers.append(tok)
-    return {"dhcp": dhcp and not servers, "servers": servers}
+    return {"dhcp": False, "servers": servers}
 
 
 class WindowsDns:

@@ -23,6 +23,17 @@ def test_roundtrip_save_load(tmp_path):
     assert back == c
 
 
+def test_load_tolerates_utf8_bom(tmp_path):
+    # Windows PowerShell `Set-Content -Encoding UTF8` prepends a BOM; a BOM must
+    # not make the daemon silently drop the whole config and fall back to
+    # defaults (which broke the Windows all-in-one: tor_path lost, connect fails).
+    p = tmp_path / "config.json"
+    p.write_bytes(b"\xef\xbb\xbf" + b'{"tor_path": "C:\\\\x\\\\tor.exe", "manage_torrc": false}')
+    c = load(p)
+    assert c.tor_path == "C:\\x\\tor.exe"
+    assert c.manage_torrc is False
+
+
 def test_from_dict_drops_unknown_keys():
     c = Config.from_dict({"port": 1234, "totally_unknown": "x", "target_uid": 1001})
     assert c.port == 1234

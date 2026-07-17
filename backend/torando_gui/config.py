@@ -205,10 +205,15 @@ def load(path: Path = CONFIG_FILE) -> Config:
     the UI).
     """
     try:
-        raw = path.read_text(encoding="utf-8")
+        # utf-8-sig transparently strips a leading BOM if present. Windows
+        # PowerShell's `Set-Content -Encoding UTF8` writes one, and a BOM would
+        # otherwise make json.loads fail and silently drop the whole config.
+        raw = path.read_text(encoding="utf-8-sig")
     except OSError:
         # FileNotFoundError, IsADirectoryError, PermissionError, … — all safe
         # to treat as "no usable config; use defaults".
+        return Config()
+    except UnicodeDecodeError:
         return Config()
     raw = raw.strip()
     if not raw:

@@ -44,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="emergency: clear the resolv.conf lock and restore the real resolver, then exit",
     )
+    p.add_argument(
+        "--disconnect",
+        action="store_true",
+        help="full teardown: remove firewall rules, restore the system proxy and DNS, then exit",
+    )
     p.add_argument("--version", action="version", version=f"torando-gui {__version__}")
     return p
 
@@ -67,6 +72,20 @@ def main(argv: list[str] | None = None) -> int:
         res = dnsmod.make_dns().restore(cfg)
         print(f"DNS restore: {res}", file=sys.stderr)
         return 0 if res.get("restored") or not res.get("note") else 1
+
+    # Full teardown: remove the firewall rules, restore the captured system proxy
+    # (Windows) and DNS, then exit. This is what uninstall runs so removal never
+    # leaves the browser pointed at a now-dead SOCKS proxy.
+    if args.disconnect:
+        backend = SystemBackend(cfg.host_socks(), cfg.control_port)
+        app = App(cfg, backend, "", mock=False, config_path=cfg_path)
+        try:
+            app.disconnect()
+            print("disconnected: rules removed, proxy/DNS restored", file=sys.stderr)
+            return 0
+        except Exception as exc:  # noqa: BLE001 — teardown must not crash uninstall
+            print(f"disconnect error: {exc}", file=sys.stderr)
+            return 1
 
     if cfg.host != "127.0.0.1" and not args.mock:
         print(

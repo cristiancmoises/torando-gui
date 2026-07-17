@@ -14,6 +14,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from . import platform as _plat
 from .config import TORRC_BEGIN, TORRC_END, Config, atomic_write_text
 
 Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
@@ -24,12 +25,20 @@ def _default_runner(argv: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def render_torrc_block(cfg: Config) -> str:
-    """Render the managed torrc block from config. Deterministic."""
+    """Render the managed torrc block from config. Deterministic.
+
+    ``TransPort`` is omitted on Windows: tor.exe has no transparent-proxy support
+    there and *fails to start* if the directive is present, which would take the
+    bundled Tor down. Windows routes via SOCKS, so it doesn't need it.
+    """
     lines = [
         TORRC_BEGIN,
         "VirtualAddrNetwork 10.192.0.0/10",
         "AutomapHostsOnResolve 1",
-        f"TransPort {cfg.trans_port}",
+    ]
+    if not _plat.is_windows():
+        lines.append(f"TransPort {cfg.trans_port}")
+    lines += [
         f"DNSPort {cfg.dns_port}",
         f"SocksPort {cfg.socks_port}",
     ]

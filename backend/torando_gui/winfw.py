@@ -116,33 +116,25 @@ def proxy_server_value(host: str, port: int) -> str:
     return f"socks={host}:{port}"
 
 
+# The policy VALUE (e.g. BlockInbound,AllowOutbound) is a language-neutral
+# keyword; only the section headers and the "Firewall Policy" label are
+# localized. So we match the value and assign to the profiles by order.
+_POLICY_VALUE = re.compile(
+    r"\b((?:Block|Allow)Inbound(?:Always)?)\s*,\s*((?:Block|Allow)Outbound)\b", re.IGNORECASE
+)
+
+
 def parse_firewall_policy(show_output: str) -> dict[str, str]:
     """Parse ``netsh advfirewall show allprofiles`` into {profile: 'In,Out'}.
 
-    The output has three sections (Domain/Private/Public Profile Settings) each
-    with a ``Firewall Policy`` line like ``BlockInbound,AllowOutbound``. Returns a
-    mapping keyed by the netsh profile token (domainprofile/…). Missing sections
-    are simply absent from the result.
+    LOCALE-INDEPENDENT: netsh prints the three profiles in order (Domain,
+    Private, Public), each with a policy line whose *value* is a fixed English
+    keyword even on translated Windows. We collect those values in order and map
+    them to the profile tokens — never matching the localized labels, which would
+    return {} on non-English Windows and make restore destroy the real policy.
     """
-    out: dict[str, str] = {}
-    section_to_profile = {
-        "Domain Profile": "domainprofile",
-        "Private Profile": "privateprofile",
-        "Public Profile": "publicprofile",
-    }
-    current: str | None = None
-    for raw in show_output.splitlines():
-        line = raw.strip()
-        for label, token in section_to_profile.items():
-            if line.startswith(label):
-                current = token
-                break
-        m = re.match(r"Firewall Policy\s+(\S+)", line)
-        if m and current:
-            # value like 'BlockInbound,AllowOutbound' -> keep as 'In,Out' tokens
-            out[current] = m.group(1)
-            current = None
-    return out
+    values = [f"{m.group(1)},{m.group(2)}" for m in _POLICY_VALUE.finditer(show_output)]
+    return dict(zip(PROFILES, values, strict=False))
 
 
 class WindowsFirewall:
@@ -307,6 +299,11 @@ class WindowsFirewall:
             return None
 
     # --- WinINET system proxy (winreg + ctypes broadcast) ----------------
+    # Bypass loopback and non-FQDN intranet names so the UI (127.0.0.1:8088) and
+    # local resources are NOT forced through Tor's SOCKS (which rejects private
+    # targets). '<local>' covers dotless hostnames; the literals cover loopback.
+    _PROXY_OVERRIDE = "localhost;127.0.0.1;<local>"
+
     def _set_proxy(self, *, enable: bool, server: str) -> None:
         try:
             import winreg  # noqa: PLC0415 — Windows-only, imported lazily
@@ -317,6 +314,7 @@ class WindowsFirewall:
             winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 1 if enable else 0)
             if enable:
                 winreg.SetValueEx(key, "ProxyServer", 0, winreg.REG_SZ, server)
+                winreg.SetValueEx(key, "ProxyOverride", 0, winreg.REG_SZ, self._PROXY_OVERRIDE)
         finally:
             winreg.CloseKey(key)
         self._broadcast_proxy_change()
@@ -331,19 +329,25 @@ class WindowsFirewall:
         try:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _INET_KEY)
         except OSError:
-            return {"enable": 0, "server": None}
+            return {"enable": 0, "server": None, "override": None}
+        out: dict = {}
         try:
-            try:
-                enable, _ = winreg.QueryValueEx(key, "ProxyEnable")
-            except OSError:
-                enable = 0
-            try:
-                server, _ = winreg.QueryValueEx(key, "ProxyServer")
-            except OSError:
-                server = None
+            for name, default in (
+                ("ProxyEnable", 0),
+                ("ProxyServer", None),
+                ("ProxyOverride", None),
+            ):
+                try:
+                    out[name] = winreg.QueryValueEx(key, name)[0]
+                except OSError:
+                    out[name] = default
         finally:
             winreg.CloseKey(key)
-        return {"enable": int(enable), "server": server}
+        return {
+            "enable": int(out["ProxyEnable"]),
+            "server": out["ProxyServer"],
+            "override": out["ProxyOverride"],
+        }
 
     def _restore_proxy(self, prior: dict | None) -> None:
         """Put back the captured proxy. If there was none, just disable ours."""
@@ -357,9 +361,13 @@ class WindowsFirewall:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _INET_KEY, 0, winreg.KEY_SET_VALUE)
         try:
             winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, int(prior.get("enable", 0)))
-            server = prior.get("server")
-            if server is not None:
-                winreg.SetValueEx(key, "ProxyServer", 0, winreg.REG_SZ, server)
+            for name in ("ProxyServer", "ProxyOverride"):
+                val = prior.get("server" if name == "ProxyServer" else "override")
+                if val is not None:
+                    winreg.SetValueEx(key, name, 0, winreg.REG_SZ, val)
+                else:
+                    with contextlib.suppress(OSError):
+                        winreg.DeleteValue(key, name)
         finally:
             winreg.CloseKey(key)
         self._broadcast_proxy_change()
