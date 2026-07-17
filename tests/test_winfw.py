@@ -7,6 +7,7 @@ Windows, so this all runs on Linux)."""
 from __future__ import annotations
 
 import subprocess
+import sys
 
 import pytest
 from torando_gui import winfw
@@ -232,6 +233,11 @@ def test_status_reports_killswitch_when_all_blocked(tmp_path):
     assert st["killswitch"] is True
 
 
-def test_is_admin_false_off_windows():
-    # ctypes.windll doesn't exist on Linux -> the helper must swallow it.
-    assert winfw.is_admin() is False
+def test_is_admin_returns_bool():
+    # Off Windows, ctypes.windll doesn't exist and the helper must swallow it and
+    # return False; on Windows it reports real elevation (True on an elevated CI
+    # runner). Either way it must never raise and must return a bool.
+    result = winfw.is_admin()
+    assert isinstance(result, bool)
+    if sys.platform != "win32":
+        assert result is False

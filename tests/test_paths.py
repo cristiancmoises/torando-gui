@@ -9,17 +9,19 @@ from torando_gui.config import Config, default_paths
 
 
 def test_linux_paths_unchanged():
+    # .as_posix() so the comparison is separator-agnostic when these Linux paths
+    # are exercised on a Windows CI host (where str(Path) uses backslashes).
     p = default_paths(plat.LINUX)
-    assert str(p["config_dir"]) == "/etc/torando-gui"
-    assert str(p["runtime_dir"]) == "/run/torando-gui"
-    assert str(p["torrc"]) == "/etc/tor/torrc"
-    assert str(p["resolv"]) == "/etc/resolv.conf"
+    assert p["config_dir"].as_posix() == "/etc/torando-gui"
+    assert p["runtime_dir"].as_posix() == "/run/torando-gui"
+    assert p["torrc"].as_posix() == "/etc/tor/torrc"
+    assert p["resolv"].as_posix() == "/etc/resolv.conf"
 
 
 def test_freebsd_paths():
     p = default_paths(plat.FREEBSD)
-    assert str(p["config_dir"]) == "/usr/local/etc/torando-gui"
-    assert str(p["torrc"]) == "/usr/local/etc/tor/torrc"
+    assert p["config_dir"].as_posix() == "/usr/local/etc/torando-gui"
+    assert p["torrc"].as_posix() == "/usr/local/etc/tor/torrc"
 
 
 def test_windows_paths(monkeypatch):
@@ -31,7 +33,7 @@ def test_windows_paths(monkeypatch):
 
 def test_openbsd_paths():
     p = default_paths(plat.OPENBSD)
-    assert str(p["torrc"]) == "/etc/tor/torrc"
+    assert p["torrc"].as_posix() == "/etc/tor/torrc"
 
 
 def test_new_config_fields_have_safe_defaults():
