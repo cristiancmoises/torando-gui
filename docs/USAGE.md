@@ -222,12 +222,19 @@ that ignores it is blocked, not leaked.
 - **All-in-one:** the `-windows.zip` bundles its own embedded Python and Tor, so
   there is nothing to install first. `install.ps1` copies the bundle to
   `Program Files`, writes a `torrc` (no `TransPort` — Windows has no transparent
-  proxy), and registers two boot-time Scheduled Tasks as SYSTEM: `TorandoGUI-Tor`
-  (the bundled Tor) and `TorandoGUI-Daemon` (the root daemon). `manage_torrc` is
-  seeded off because the bundled Tor owns its `torrc`; set exit country / bridges
-  by editing `%ProgramData%\torando-gui\torrc` and restarting the `TorandoGUI-Tor`
-  task. Tor ships frequent security updates — refresh the bundled copy by
-  installing a newer release (see `BUNDLED.txt`).
+  proxy), and registers two Scheduled Tasks:
+  - **`TorandoGUI-Tor`** — the bundled Tor, as **SYSTEM at boot** (needs no user).
+  - **`TorandoGUI-Daemon`** — the root daemon, as **your own account, elevated,
+    at logon**. This matters: the WinINET system proxy is per-user (`HKCU`), so a
+    SYSTEM daemon would set it in the wrong hive and your browser would never see
+    it. Run `install.ps1` from the account you'll actually use the desktop with.
+- The daemon runs under `pythonw.exe boot\daemon.py` (bundled Python) and logs to
+  **`%ProgramData%\torando-gui\logs\daemon.log`** — read it first if the app
+  doesn't come up.
+- `manage_torrc` is seeded off because the bundled Tor owns its `torrc`; set exit
+  country / bridges by editing `%ProgramData%\torando-gui\torrc` and restarting
+  the `TorandoGUI-Tor` task. Tor ships frequent security updates — refresh the
+  bundled copy by installing a newer release (see `BUNDLED.txt`).
 
 ## Troubleshooting
 

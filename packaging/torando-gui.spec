@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
 Name:           torando-gui
-Version:        1.3.0
+Version:        1.3.1
 Release:        1%{?dist}
 Summary:        Route a user's egress through Tor (transparent proxy + killswitch)
 

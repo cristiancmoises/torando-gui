@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
 # Maintainer: Cristian Cezar Moisés <cristian@securityops.co>
 pkgname=torando-gui
-pkgver=1.3.0
+pkgver=1.3.1
 pkgrel=1
 pkgdesc="Route a user's egress through Tor (transparent proxy + killswitch)"
 arch=('any')

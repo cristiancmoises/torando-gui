@@ -9,10 +9,11 @@ param([string]$InstallDir = "$env:ProgramFiles\torando-gui")
 $ErrorActionPreference = "SilentlyContinue"
 
 # Best-effort: let the daemon restore firewall policy, system proxy and DNS
-# (via the bundled Python, so this works with no system Python).
-$daemon = "$InstallDir\python\pythonw.exe"
-if (Test-Path $daemon) {
-    & $daemon -m torando_gui --restore-dns | Out-Null
+# (via the bundled Python + bootstrap, so this works with no system Python).
+$pyw = "$InstallDir\python\pythonw.exe"
+$boot = "$InstallDir\boot\daemon.py"
+if ((Test-Path $pyw) -and (Test-Path $boot)) {
+    & $pyw $boot --restore-dns | Out-Null
     Start-Sleep -Seconds 1
 }
 

@@ -4,6 +4,34 @@ All notable changes to **Torando Control** are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] — 2026-07-17
+
+Makes the Windows all-in-one actually run. 1.3.0 shipped the bundle but three
+Windows-specific problems kept it from working; all are fixed here.
+
+### Fixed — Windows
+- **The daemon couldn't reliably import its own package.** It relied on the
+  embeddable Python's `._pth` resolving a relative `..\lib`, which is fragile and
+  fails silently under `pythonw.exe`. The bundle now ships `boot\daemon.py` /
+  `boot\gui.py` that put `lib\` on `sys.path` **explicitly** — no `._pth`
+  dependency. Verified by launching the daemon through the bootstrap.
+- **No diagnostics when it failed.** `boot\daemon.py` redirects output to
+  `%ProgramData%\torando-gui\logs\daemon.log` and logs any startup exception, so
+  a failure is visible instead of a silent "backend not reachable".
+- **The system proxy was set in the wrong registry hive.** The WinINET proxy is
+  per-user (`HKCU`); a SYSTEM daemon set it in SYSTEM's hive, so the user's
+  browser never saw it. The daemon now runs as **your own account, elevated, at
+  logon** (Tor still runs as SYSTEM at boot) — so it sets *your* proxy while
+  keeping the admin rights it needs for the firewall and DNS. `install.ps1` also
+  seeds `enable_control_port=false` (the bundled `torrc` has no ControlPort) and
+  ends with a health check that waits for the daemon and points at the log.
+
+### Notes
+- Run `install.ps1` from the account you'll use the desktop with (it registers
+  the daemon task for that user). `uninstall.ps1` runs the same account's
+  teardown. If the app still doesn't come up, read
+  `%ProgramData%\torando-gui\logs\daemon.log`.
+
 ## [1.3.0] — 2026-07-17
 
 The Windows build is now **all-in-one**: no prerequisites.
@@ -250,6 +278,7 @@ Initial release.
   SOCKS framing, exit-check invariants, config, `torrc`/`resolv` editing and the
   server's access controls.
 
+[1.3.1]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.1
 [1.3.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.0
 [1.2.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.2.0
 [1.1.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.1.0

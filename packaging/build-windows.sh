@@ -48,7 +48,10 @@ install -d "$TOP/tor/data"
 cp "$TT/data/geoip" "$TT/data/geoip6" "$TOP/tor/data/" 2>/dev/null || true
 rm -rf "$TT"
 
-# 4) Launchers, installer, torrc template, docs.
+# 4) Bootstrap scripts (explicit sys.path + logging), launchers, installer.
+install -d "$TOP/boot"
+install -m 0644 "$PKG_DIR/windows/boot/daemon.py" "$TOP/boot/daemon.py"
+install -m 0644 "$PKG_DIR/windows/boot/gui.py"    "$TOP/boot/gui.py"
 install -m 0644 "$PKG_DIR/windows/torando-guid.cmd" "$TOP/torando-guid.cmd"
 install -m 0644 "$PKG_DIR/windows/torando-gui.cmd"  "$TOP/torando-gui.cmd"
 install -m 0644 "$PKG_DIR/windows/install.ps1"      "$TOP/install.ps1"
