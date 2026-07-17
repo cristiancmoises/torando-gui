@@ -35,25 +35,47 @@ you never copy or paste it.
 
 ## Recovery
 
-The daemon is built so a failure or crash can't leave you without DNS:
+The daemon is built so a failure or crash can't strand you without DNS, on any
+platform:
 
-- A failed connect rolls everything back. Rules removed, `resolv.conf` restored.
-  Your internet is exactly as it was before.
+- A failed connect rolls everything back — rules removed, DNS restored — so your
+  network is exactly as it was before.
 - A crash, kill or reboot while connected is caught on the next daemon start,
-  which un-pins `resolv.conf` if you're no longer routing.
-- If DNS is ever stuck pinned to `127.0.0.1`:
-  ```sh
-  sudo torando-guid --restore-dns
-  ```
-  This clears the immutable bit, restores your captured resolver, and exits. As
-  a last resort:
-  ```sh
-  sudo chattr -i /etc/resolv.conf
-  sudo cp /etc/resolv.conf.torando.bak /etc/resolv.conf   # if present
-  ```
+  which un-pins DNS if you're no longer routing.
+- The captured prior state (resolver, firewall policy, system proxy) is snapshot
+  **once** and never overwritten by the tool's own pin, so a reconnect can't
+  lose your real configuration.
 
-`resolv.conf` is always written 0644. (An earlier version left it 0600, which
-broke DNS for the normal user even after a restore; that's fixed.)
+The one-shot escape hatch is the same everywhere — it restores DNS and exits:
+```sh
+sudo torando-guid --restore-dns          # Linux/macOS/BSD
+```
+```powershell
+torando-guid --restore-dns               # Windows (elevated)
+```
+
+Per-platform last resort, if `--restore-dns` can't run:
+
+- **Linux / BSD** — clear the lock and put back the backup:
+  ```sh
+  sudo chattr -i /etc/resolv.conf                          # Linux
+  sudo chflags noschg /etc/resolv.conf                     # BSD
+  sudo cp /etc/resolv.conf.torando.bak /etc/resolv.conf    # if present
+  ```
+  `resolv.conf` is always written 0644 (an earlier version left it 0600, which
+  broke DNS for the normal user; fixed).
+- **macOS** — DNS is set per service, not in `resolv.conf`:
+  ```sh
+  networksetup -listallnetworkservices
+  sudo networksetup -setdnsservers "Wi-Fi" Empty           # back to DHCP
+  ```
+- **Windows** — return DNS to DHCP and re-allow outbound (the daemon does this
+  itself; only needed if it can't run):
+  ```powershell
+  netsh interface ipv4 set dnsservers name="Wi-Fi" source=dhcp
+  netsh advfirewall set allprofiles firewallpolicy blockinbound,allowoutbound
+  ```
+  Or just run the bundled `uninstall.ps1`, which performs the full teardown.
 
 ## CLI
 
@@ -112,15 +134,39 @@ listening on the ports above. A common mismatch is a system Tor with
 
 ## Verifying
 
+The exit card in the app queries `check.torproject.org/api/ip` through Tor's
+SOCKS port and shows the exit IP and `IsTor` verdict (or "unknown" rather than
+guessing). To confirm the rules yourself:
+
+**Linux**
 ```sh
-iptables -t nat -S OUTPUT      # REDIRECT + loopback RETURN
-iptables -S OUTPUT             # the ACCEPTs and the final DROP
+iptables  -t nat -S OUTPUT     # REDIRECT + loopback RETURN
+iptables  -S OUTPUT            # the ACCEPTs and the final DROP
+ip6tables -S OUTPUT            # the IPv6 killswitch (loopback ACCEPT + DROP)
 cat /etc/resolv.conf           # nameserver 127.0.0.1 while connected
 lsattr /etc/resolv.conf        # the immutable bit while connected
 ```
-The exit card queries `check.torproject.org/api/ip` through Tor's SOCKS port and
-shows the exit IP and `IsTor` verdict. If it can't run the check it shows
-"unknown" rather than guessing.
+
+**macOS / FreeBSD / OpenBSD**
+```sh
+pfctl -s info                          # Status: Enabled
+pfctl -a torando-gui -sr                # the loopback pass + block-out rules
+pfctl -s rules | grep torando-gui       # confirms the anchor is REFERENCED
+scutil --dns | grep nameserver          # 127.0.0.1 (macOS)
+networksetup -getsocksfirewallproxy Wi-Fi   # macOS: Enabled Yes, 127.0.0.1 9050
+```
+
+**Windows** (elevated)
+```powershell
+netsh advfirewall show allprofiles | findstr "Policy"   # ...,BlockOutbound
+netsh advfirewall firewall show rule name=TorandoGUI-Tor-Out
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyServer
+netsh interface ipv4 show dnsservers                     # 127.0.0.1 while pinned
+```
+
+The strongest test on any platform: stop Tor while connected and confirm the
+torified traffic **fails** rather than reaching the network — that is the
+killswitch doing its job.
 
 ## Platform notes
 
@@ -176,3 +222,30 @@ that ignores it is blocked, not leaked.
 - Install a [Tor Expert Bundle](https://www.torproject.org/download/tor/) and set
   `tor_path` to its `tor.exe`. The daemon must run elevated (the boot Scheduled
   Task from `install.ps1` runs it as SYSTEM).
+
+## Troubleshooting
+
+- **The exit card says "unknown".** Tor isn't reachable on the SOCKS port, or the
+  check host is blocked. Confirm Tor is running and `socks_port` matches your
+  `torrc`.
+- **Connect fails with a DNSPort/TransPort mismatch.** The daemon routes into an
+  *existing* Tor, so its ports must match. The classic case is a system Tor on
+  `DNSPort 5353` while `dns_port` is `53` — set `dns_port` to `5353`.
+- **Linux: "refusing to connect… ip6tables is unavailable".** Your kernel has
+  IPv6 but `ip6tables` isn't installed, so the v6 killswitch can't be armed. Install
+  it (usually the `iptables`/`iptables-nft` package), or set `ipv6_killswitch=false`
+  to accept an unfiltered IPv6 path.
+- **macOS/BSD: connected but traffic still isn't through Tor.** The killswitch
+  blocks non-Tor egress, but routing *into* Tor needs the SOCKS proxy. On macOS
+  confirm `networksetup -getsocksfirewallproxy` shows it enabled; on the BSDs use
+  `torsocks`. Also verify the anchor is actually evaluated
+  (`pfctl -s rules | grep torando-gui`) — if your `pf.conf` has an earlier
+  `pass … quick` rule, move the `anchor "torando-gui"` reference ahead of it.
+- **macOS: "app is damaged / cannot be opened".** Gatekeeper quarantine on the
+  unsigned app. `xattr -dr com.apple.quarantine "/Applications/Torando Control.app"`,
+  or approve it in System Settings → Privacy & Security.
+- **Windows: everything is blocked, including Tor.** `tor_path` must point at a
+  real `tor.exe` so the firewall can whitelist it. If a disconnect was interrupted,
+  run `uninstall.ps1` (or `torando-guid --restore-dns`) to restore the policy.
+- **DNS is stuck on 127.0.0.1 after a crash.** Run `torando-guid --restore-dns`,
+  or see [Recovery](#recovery) for the per-platform manual steps.

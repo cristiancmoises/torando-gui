@@ -102,8 +102,10 @@ exec ~a -m ~a \"$@\"\n"
   (synopsis "Route a user's egress through Tor (transparent proxy + killswitch)")
   (description
    "Loopback web GUI that forces one local user's traffic through Tor's
-TransPort and DNSPort and drops everything else from that user.  It automates
-the upstream torando iptables rules together with torrc and resolv.conf
-management, and reports live bootstrap, DNS-leak and exit status.")
+TransPort and DNSPort and drops everything else from that user (a fail-closed
+killswitch).  It automates the upstream torando iptables rules together with
+torrc and resolv.conf management, adds an ip6tables IPv6 killswitch so v6 cannot
+leak around Tor, and reports live bootstrap, DNS-leak and exit status.  This is
+the Linux build; the upstream project also targets macOS, the BSDs and Windows.")
   (home-page "https://github.com/cristiancmoises/torando-gui")
   (license license:agpl3))
