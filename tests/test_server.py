@@ -154,7 +154,7 @@ def test_mock_connect_then_status_active(server):
         server + "/api/config",
         method="POST",
         headers={"X-Torando-Token": TOKEN, "Origin": server, "Content-Type": "application/json"},
-        data=json.dumps({"target_uid": 1000}).encode(),
+        data=json.dumps({"target_uid": 0}).encode(),  # root: exists in CI containers too
     )
     assert code == 200
     code, body = _req(

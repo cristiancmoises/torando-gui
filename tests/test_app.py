@@ -63,8 +63,10 @@ class StatefulBackend(MockBackend):
 
 
 def _app(backend, tmp_path) -> App:
+    # uid 0 (root) exists in every environment, including the slim CI containers
+    # and macOS runners where uid 1000 does not — resolve_uid() must find it.
     return App(
-        Config(target_uid=1000), backend, "tok", mock=True, config_path=tmp_path / "config.json"
+        Config(target_uid=0), backend, "tok", mock=True, config_path=tmp_path / "config.json"
     )
 
 
