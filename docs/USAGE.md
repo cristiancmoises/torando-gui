@@ -219,9 +219,15 @@ that ignores it is blocked, not leaked.
   proxy at Tor, and pins interface DNS with `netsh`. Disconnect restores all of
   it and deletes only the rules it added — it never runs `netsh advfirewall
   reset`.
-- Install a [Tor Expert Bundle](https://www.torproject.org/download/tor/) and set
-  `tor_path` to its `tor.exe`. The daemon must run elevated (the boot Scheduled
-  Task from `install.ps1` runs it as SYSTEM).
+- **All-in-one:** the `-windows.zip` bundles its own embedded Python and Tor, so
+  there is nothing to install first. `install.ps1` copies the bundle to
+  `Program Files`, writes a `torrc` (no `TransPort` — Windows has no transparent
+  proxy), and registers two boot-time Scheduled Tasks as SYSTEM: `TorandoGUI-Tor`
+  (the bundled Tor) and `TorandoGUI-Daemon` (the root daemon). `manage_torrc` is
+  seeded off because the bundled Tor owns its `torrc`; set exit country / bridges
+  by editing `%ProgramData%\torando-gui\torrc` and restarting the `TorandoGUI-Tor`
+  task. Tor ships frequent security updates — refresh the bundled copy by
+  installing a newer release (see `BUNDLED.txt`).
 
 ## Troubleshooting
 

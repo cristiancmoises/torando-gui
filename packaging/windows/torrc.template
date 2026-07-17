@@ -1,0 +1,9 @@
+# torrc for the bundled Tor (written by install.ps1 with @@ placeholders filled).
+# No TransPort: Windows has no transparent proxy, so Torando routes via SOCKS.
+SocksPort 127.0.0.1:9050
+DNSPort 127.0.0.1:53
+AutomapHostsOnResolve 1
+VirtualAddrNetworkIPv4 10.192.0.0/10
+DataDirectory @@DATADIR@@
+GeoIPFile @@GEOIP@@
+GeoIPv6File @@GEOIP6@@

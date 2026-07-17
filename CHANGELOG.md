@@ -4,6 +4,51 @@ All notable changes to **Torando Control** are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-07-17
+
+The Windows build is now **all-in-one**: no prerequisites.
+
+### Added — Windows all-in-one
+- **The `-windows.zip` bundles its own embedded CPython and Tor**, so the app
+  runs on a clean Windows with nothing pre-installed (previously it failed to
+  start when Python wasn't present). `build-windows.sh` downloads the official
+  Python embeddable package and the Tor Expert Bundle and assembles them under
+  `python\` and `tor\`; the embeddable Python's `._pth` is pointed at `..\lib` so
+  `python -m torando_gui` resolves the bundled package. The `.cmd` launchers call
+  the bundled `python\pythonw.exe`/`python.exe`.
+- **`install.ps1` is a turnkey installer**: it copies the bundle to
+  `Program Files`, writes a `torrc` (with `DataDirectory`/`GeoIPFile` pointing at
+  the bundled Tor data, and **no `TransPort`** since Windows has no transparent
+  proxy), seeds `config.json` (`manage_torrc` off, `tor_path` at the bundled
+  `tor.exe`), and registers two boot-time SYSTEM Scheduled Tasks —
+  `TorandoGUI-Tor` and `TorandoGUI-Daemon`. `uninstall.ps1` stops both, restores
+  the firewall/proxy/DNS, and removes the install. A `BUNDLED.txt` records the
+  pinned Python/Tor versions and how to refresh Tor for security updates.
+
+### Changed / Robustness
+- **`make_icon.py` no longer requires Pillow**: it falls back to a pure-stdlib
+  PNG writer, so a `deb`/`rpm`/`tarball`/AppImage build never fails on a missing
+  optional dependency (this had silently dropped the Linux packages from the
+  first 1.2.0 release).
+- **`release.yml`** installs Pillow + FUSE, builds the AppImage, no longer
+  swallows Linux-package build errors, and can be re-run via `workflow_dispatch`
+  against an existing tag.
+- **CI is green on Windows and macOS.** Two pre-existing tests hard-coded
+  `target_uid=1000` (absent in CI containers) — switched to `uid 0`; `test_paths`
+  now compares with `.as_posix()` (Windows renders paths with backslashes); and
+  the `is_admin` test asserts a bool rather than `False` (CI's Windows runner is
+  elevated).
+
+### Docs
+- README/USAGE describe the all-in-one Windows install (no prerequisites) and
+  note macOS/BSD/Linux use the system `python3`; CHANGELOG/SECURITY updated.
+
+### Notes
+- The AppImage/`.deb`/`.rpm` are built by the release workflow (they need native
+  tooling); the Windows/macOS/BSD bundles and the `.tar.zst` build anywhere.
+- macOS/BSD still use the host `python3` and `tor` (Homebrew/pkg); only Windows
+  is fully self-contained so far.
+
 ## [1.2.0] — 2026-07-16
 
 Cross-platform. Torando Control now runs on macOS, FreeBSD, OpenBSD and Windows
@@ -205,6 +250,7 @@ Initial release.
   SOCKS framing, exit-check invariants, config, `torrc`/`resolv` editing and the
   server's access controls.
 
+[1.3.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.0
 [1.2.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.2.0
 [1.1.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.1.0
 [1.0.1]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.0.1

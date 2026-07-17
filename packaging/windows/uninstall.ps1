@@ -8,10 +8,12 @@
 param([string]$InstallDir = "$env:ProgramFiles\torando-gui")
 $ErrorActionPreference = "SilentlyContinue"
 
-# Best-effort: let the daemon restore firewall policy, system proxy and DNS.
-$daemon = "$InstallDir\torando-guid.cmd"
+# Best-effort: let the daemon restore firewall policy, system proxy and DNS
+# (via the bundled Python, so this works with no system Python).
+$daemon = "$InstallDir\python\pythonw.exe"
 if (Test-Path $daemon) {
-    & cmd.exe /c "`"$daemon`" --restore-dns" | Out-Null
+    & $daemon -m torando_gui --restore-dns | Out-Null
+    Start-Sleep -Seconds 1
 }
 
 # Delete any residual firewall rules and re-allow outbound (safety net if the
@@ -24,7 +26,10 @@ foreach ($p in @("domainprofile","privateprofile","publicprofile")) {
     netsh advfirewall set $p firewallpolicy blockinbound,allowoutbound | Out-Null
 }
 
-Unregister-ScheduledTask -TaskName "TorandoGUI-Daemon" -Confirm:$false
-Unregister-ScheduledTask -TaskName "TorandoGUI-Tor" -Confirm:$false
+# Stop and remove both boot tasks (the daemon and the bundled Tor).
+foreach ($t in @("TorandoGUI-Daemon", "TorandoGUI-Tor")) {
+    Stop-ScheduledTask -TaskName $t
+    Unregister-ScheduledTask -TaskName $t -Confirm:$false
+}
 Remove-Item -Recurse -Force $InstallDir
 Write-Host "Removed Torando Control. Your config under %ProgramData%\torando-gui was left in place."

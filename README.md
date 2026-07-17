@@ -49,8 +49,10 @@ killswitch rather than leaked. Windows is machine-wide (there is no driverless
 per-process redirect), so it has no "target user" — the whole machine is
 routed. See [docs/USAGE.md](docs/USAGE.md#platform-notes) for the per-OS detail.
 
-New in 1.2.0: a Linux **IPv6 killswitch** (the old ruleset was IPv4-only, which
-was the top leak), plus native macOS/BSD/Windows backends and release bundles.
+New in 1.3.0: the **Windows build is now all-in-one** — the `-windows.zip` ships
+its own embedded Python and Tor, so there is nothing to install first (this fixes
+"the app won't start because Python isn't installed"). 1.2.0 added the Linux
+**IPv6 killswitch** and the native macOS/BSD/Windows backends.
 
 ## How it works
 
@@ -98,14 +100,16 @@ headers are sent.
 
 ## Requirements
 
-- Python 3.11+ (standard library only), and a running `tor`.
+- Python 3.11+ (standard library only), and a running `tor` — **except on
+  Windows, where the release bundles both** (see below).
 - Administrator/root for the daemon (it edits the firewall, DNS and `torrc`).
 - Per platform:
   - **Linux** — `iptables` **and** `ip6tables` (legacy or nft-backed), `tor`.
-  - **macOS** — `pf` (built in) and Homebrew `tor` (`brew install tor`).
-  - **FreeBSD/OpenBSD** — `pf` (built in) and the `tor` package.
-  - **Windows** — Windows 10/11, and a Tor Expert Bundle `tor.exe` (set its
-    path in the config).
+  - **macOS** — `pf` (built in), a `python3` (Xcode Command Line Tools or
+    Homebrew), and Homebrew `tor` (`brew install tor`).
+  - **FreeBSD/OpenBSD** — `pf` (built in), `python3` and the `tor` package.
+  - **Windows 10/11** — **nothing to pre-install.** The `-windows.zip` is an
+    all-in-one: it ships its own embedded Python and Tor.
 - For the native window (Linux): GTK4, WebKitGTK and PyGObject. Without them the
   app opens in your browser instead — which is also the default on macOS,
   the BSDs and Windows.
@@ -116,14 +120,14 @@ Grab the release assets from the [releases page](https://github.com/cristiancmoi
 
 ### Debian / Ubuntu
 ```sh
-sudo apt install ./torando-gui_1.2.0_all.deb
+sudo apt install ./torando-gui_1.3.0_all.deb
 sudo systemctl enable --now torando-gui.service
 torando-gui
 ```
 
 ### Fedora / RHEL
 ```sh
-sudo dnf install ./torando-gui-1.2.0-1.noarch.rpm
+sudo dnf install ./torando-gui-1.3.0-1.noarch.rpm
 sudo systemctl enable --now torando-gui.service
 torando-gui
 ```
@@ -182,9 +186,9 @@ brew tap cristiancmoises/tap && brew install torando-gui   # once the tap is pub
 sudo torando-guid          # or load the LaunchDaemon (see below)
 torando-gui
 ```
-Or from the `torando-gui-1.2.0-macos.zip` bundle:
+Or from the `torando-gui-1.3.0-macos.zip` bundle:
 ```sh
-unzip torando-gui-1.2.0-macos.zip && cd torando-gui-1.2.0
+unzip torando-gui-1.3.0-macos.zip && cd torando-gui-1.3.0
 sudo ./install.sh          # installs the .app, CLI, and LaunchDaemon
 ```
 The app is unsigned, so the first launch needs Right-click → Open (or
@@ -196,25 +200,28 @@ notes in [docs/USAGE.md](docs/USAGE.md#platform-notes).
 ```sh
 # FreeBSD
 pkg install tor
-tar xzf torando-gui-1.2.0-freebsd.tar.gz && cd torando-gui-1.2.0
+tar xzf torando-gui-1.3.0-freebsd.tar.gz && cd torando-gui-1.3.0
 sudo ./install.sh && sudo service torando-gui start
 # OpenBSD
 pkg_add tor
-tar xzf torando-gui-1.2.0-openbsd.tar.gz && cd torando-gui-1.2.0
+tar xzf torando-gui-1.3.0-openbsd.tar.gz && cd torando-gui-1.3.0
 doas ./install.sh && doas rcctl enable torando_gui && doas rcctl start torando_gui
 ```
 
-### Windows
-Install a [Tor Expert Bundle](https://www.torproject.org/download/tor/), then
-from an **elevated** PowerShell:
+### Windows (all-in-one — no prerequisites)
+The `-windows.zip` bundles its own embedded Python **and** Tor, so you don't
+install anything first. From an **elevated** PowerShell:
 ```powershell
-Expand-Archive torando-gui-1.2.0-windows.zip .; cd torando-gui-1.2.0
-powershell -ExecutionPolicy Bypass -File install.ps1 -TorPath C:\path\to\tor.exe
+Expand-Archive torando-gui-1.3.0-windows.zip .; cd torando-gui-1.3.0
+powershell -ExecutionPolicy Bypass -File install.ps1
 .\torando-gui.cmd
 ```
-`install.ps1` registers the daemon as a boot-time Scheduled Task (SYSTEM). The
-killswitch is machine-wide (there is no per-user redirect on Windows), and it
-restores your firewall/proxy/DNS on `uninstall.ps1` or disconnect.
+`install.ps1` copies the bundle to `Program Files`, writes a `torrc`, and
+registers two boot-time Scheduled Tasks running as SYSTEM — the bundled Tor and
+the root daemon. The killswitch is machine-wide (there is no per-user redirect
+on Windows). `uninstall.ps1` stops both tasks and restores your
+firewall/proxy/DNS. (Tor ships frequent security updates; to refresh the bundled
+copy, install a newer release or replace `tor\tor.exe` — see `BUNDLED.txt`.)
 
 ## Usage
 
@@ -244,13 +251,13 @@ clears the lock and restores your resolver. See
 
 ```sh
 make test            # ruff + pytest
-make deb             # dist/torando-gui_1.2.0_all.deb        (needs dpkg-deb)
-make rpm             # dist/torando-gui-1.2.0-1.noarch.rpm   (needs rpmbuild)
+make deb             # dist/torando-gui_1.3.0_all.deb        (needs dpkg-deb)
+make rpm             # dist/torando-gui-1.3.0-1.noarch.rpm   (needs rpmbuild)
 make appimage        # dist/Torando_Control-x86_64.AppImage  (needs appimagetool)
-make tarball         # dist/torando-gui-1.2.0.tar.zst        (needs zstd)
-make windows         # dist/torando-gui-1.2.0-windows.zip    (needs zip)
-make macos           # dist/torando-gui-1.2.0-macos.zip      (needs zip; png2icns for the icon)
-make freebsd openbsd # dist/torando-gui-1.2.0-<os>.tar.gz
+make tarball         # dist/torando-gui-1.3.0.tar.zst        (needs zstd)
+make windows         # dist/torando-gui-1.3.0-windows.zip    (needs zip)
+make macos           # dist/torando-gui-1.3.0-macos.zip      (needs zip; png2icns for the icon)
+make freebsd openbsd # dist/torando-gui-1.3.0-<os>.tar.gz
 make all             # every format whose tooling is present
 ```
 

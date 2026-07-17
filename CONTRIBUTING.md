@@ -67,8 +67,11 @@ Build scripts live in `packaging/`, driven by the `Makefile`:
 - Linux: `make deb rpm tarball appimage` (needs `dpkg-deb`/`rpmbuild`/`zstd`/
   `appimagetool`), plus `packaging/guix.scm` and the securityops channel.
 - Cross-platform: `make windows macos freebsd openbsd` stage each platform's
-  bundle (pure-Python payload + launchers + install scripts) into `dist/`; they
-  build on Linux and only need `zip`/`tar`.
+  bundle into `dist/` on Linux. `macos`/`freebsd`/`openbsd` are pure-Python
+  payloads (need `zip`/`tar`). `windows` is **all-in-one**: it downloads the
+  pinned embeddable Python and Tor Expert Bundle (needs `curl` + network) and
+  bundles them, so bump `TORANDO_PYVER`/`TORANDO_TORVER` in `build-windows.sh`
+  deliberately — Tor especially, for its security updates.
 
 If you change the installed file layout, update **every** definition (deb, rpm,
 PKGBUILD, guix.scm, the securityops channel, AppRun, tarball, and the
