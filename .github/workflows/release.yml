@@ -21,13 +21,15 @@ jobs:
       - name: Install packaging tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev rpm zstd zip icnsutils fakeroot
+          sudo apt-get install -y dpkg-dev rpm zstd zip icnsutils fakeroot \
+                                  python3-pil libfuse2 desktop-file-utils
 
       - name: Build Linux packages
         run: |
-          sh packaging/build-deb.sh || echo "deb failed"
-          sh packaging/build-rpm.sh || echo "rpm failed"
-          sh packaging/build-tarball.sh || echo "tarball failed"
+          sh packaging/build-deb.sh
+          sh packaging/build-rpm.sh
+          sh packaging/build-tarball.sh
+          sh packaging/build-appimage.sh || echo "appimage: skipped (tooling)"
 
       - name: Build Windows / macOS / BSD bundles
         run: |
@@ -42,10 +44,13 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.2.0' }}
           files: |
             dist/*.deb
             dist/*.rpm
             dist/*.tar.zst
+            dist/*.AppImage
             dist/*.zip
             dist/*.tar.gz
+          fail_on_unmatched_files: false
           generate_release_notes: true
