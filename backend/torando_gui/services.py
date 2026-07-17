@@ -32,7 +32,7 @@ _NOLOGIN = {"/usr/sbin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false"
 
 
 def _default_runner(argv: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(argv, capture_output=True, text=True, check=False)  # noqa: S603
+    return _plat.run_argv(argv)  # routes through CREATE_NO_WINDOW on Windows
 
 
 def tor_installed() -> bool:

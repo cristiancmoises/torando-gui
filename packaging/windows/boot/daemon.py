@@ -26,7 +26,14 @@ sys.path.insert(0, os.path.join(_ROOT, "lib"))
 
 def _log_path() -> str:
     base = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
-    for d in (os.path.join(base, "torando-gui", "logs"), os.path.join(_ROOT, "logs")):
+    candidates = (
+        os.path.join(base, "torando-gui", "logs"),
+        os.path.join(_ROOT, "logs"),
+        os.environ.get("TEMP", ""),
+    )
+    for d in candidates:
+        if not d:
+            continue
         try:
             os.makedirs(d, exist_ok=True)
             return os.path.join(d, "daemon.log")

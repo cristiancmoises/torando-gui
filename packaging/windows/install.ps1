@@ -16,13 +16,27 @@
 param([string]$InstallDir = "$env:ProgramFiles\torando-gui")
 $ErrorActionPreference = "Stop"
 
+# Record everything to an install log so a failed install is diagnosable.
+$logDir = "$env:ProgramData\torando-gui\logs"
+try { New-Item -ItemType Directory -Force -Path $logDir | Out-Null } catch { }
+try { Start-Transcript -Path (Join-Path $logDir "install.log") -Append -Force | Out-Null } catch { }
+
 function Assert-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     $pr = New-Object Security.Principal.WindowsPrincipal($id)
     if (-not $pr.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
-        throw "install.ps1 must be run as Administrator."
+        throw "install.ps1 must be run as Administrator (right-click PowerShell > Run as administrator)."
     }
 }
+
+trap {
+    Write-Host ""
+    Write-Warning "INSTALL FAILED: $($_.Exception.Message)"
+    Write-Warning "Full log: $logDir\install.log"
+    try { Stop-Transcript | Out-Null } catch { }
+    exit 1
+}
+
 Assert-Admin
 
 if ($env:USERNAME -eq "SYSTEM") {
@@ -143,3 +157,4 @@ if ($daemonUp -and $torUp) {
     }
     Write-Host "You can still try:  $InstallDir\torando-gui.cmd"
 }
+try { Stop-Transcript | Out-Null } catch { }

@@ -24,6 +24,7 @@ Semantics differ by family and the difference is deliberate, not incidental:
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 
 LINUX = "linux"
@@ -62,6 +63,28 @@ def detect(platform_string: str | None = None) -> str:
 
 #: The platform this daemon is running on. Computed once at import.
 CURRENT = detect()
+
+# Windows CreateProcess flag. When the daemon runs under pythonw.exe (no
+# console), every child console program (netsh, schtasks, …) would otherwise pop
+# its OWN console window — the "many cmd windows flashing" the user sees on
+# Connect. CREATE_NO_WINDOW suppresses that. Value is stable (0x08000000);
+# subprocess.CREATE_NO_WINDOW only exists on Windows so we use the literal.
+_CREATE_NO_WINDOW = 0x08000000
+
+
+def run_argv(argv: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+    """Run *argv* capturing output, never raising on a non-zero exit.
+
+    The one place the whole daemon shells out. On Windows it passes
+    CREATE_NO_WINDOW so children never flash a console window; elsewhere it is a
+    plain captured run. No shell is ever used.
+    """
+    kwargs: dict = {"capture_output": True, "text": True, "check": False}
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    if CURRENT == WINDOWS:
+        kwargs["creationflags"] = _CREATE_NO_WINDOW
+    return subprocess.run(argv, **kwargs)  # noqa: S603
 
 
 def is_pf(platform_id: str | None = None) -> bool:

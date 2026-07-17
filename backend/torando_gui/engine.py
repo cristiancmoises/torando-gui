@@ -39,12 +39,15 @@ try:
 except ImportError:  # pragma: no cover - exercised only on Windows
     pwd = None  # type: ignore[assignment]
 
+from . import platform as _plat
+
 Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
 
 def _default_runner(argv: list[str]) -> subprocess.CompletedProcess[str]:
     # No shell, fixed argv, captured output. Never interpolates user text.
-    return subprocess.run(argv, capture_output=True, text=True, check=False)  # noqa: S603
+    # Routed through platform.run_argv so Windows suppresses child console windows.
+    return _plat.run_argv(argv)
 
 
 @dataclass(frozen=True)

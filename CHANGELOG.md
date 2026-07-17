@@ -4,6 +4,29 @@ All notable changes to **Torando Control** are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.3] — 2026-07-17
+
+Fixes the visible mess on Windows: the flashing console windows, the missing log,
+and an undiagnosable installer.
+
+### Fixed — Windows
+- **A flurry of console windows flashed open and closed on Connect.** The daemon
+  runs under `pythonw.exe` (no console), so every child console program it ran
+  (`netsh`, `schtasks`, …) got its *own* new console window. All subprocess calls
+  now go through one shared runner that passes `CREATE_NO_WINDOW` on Windows, so
+  nothing flashes. (New `platform.run_argv`; every backend runner routes through
+  it.)
+- **The log file was sometimes never created.** The daemon now sets up the log in
+  `__main__` too — so it is written no matter how the daemon was launched
+  (`boot\daemon.py`, `torando-guid.cmd`, or `pythonw -m torando_gui`) — with a
+  `%TEMP%` fallback if `%ProgramData%` isn't writable.
+- **A failed install gave no clue.** `install.ps1` now records a transcript to
+  `%ProgramData%\torando-gui\logs\install.log` and traps errors, printing the
+  failure and the log path instead of just aborting.
+
+### Notes
+- The UI is served at `http://127.0.0.1:8088` (not 8006).
+
 ## [1.3.2] — 2026-07-17
 
 A deep adversarial review of the Windows path (15 confirmed bugs) — this is the
@@ -327,6 +350,7 @@ Initial release.
   SOCKS framing, exit-check invariants, config, `torrc`/`resolv` editing and the
   server's access controls.
 
+[1.3.3]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.3
 [1.3.2]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.2
 [1.3.1]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.1
 [1.3.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.0

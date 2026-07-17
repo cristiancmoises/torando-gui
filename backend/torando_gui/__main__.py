@@ -14,8 +14,31 @@ import webbrowser
 from pathlib import Path
 
 from . import __version__, config
+from . import platform as _plat
 from .app import App, MockBackend, SystemBackend
 from .server import make_server
+
+
+def _ensure_windows_log() -> None:
+    """On Windows, guarantee a log file even if this was launched directly with
+    ``pythonw -m torando_gui`` (no console → sys.stderr is None) rather than via
+    the bundle's boot/daemon.py. Belt-and-braces so diagnostics always exist."""
+    if not _plat.is_windows():
+        return
+    if sys.stderr is not None and getattr(sys.stderr, "name", "").endswith("daemon.log"):
+        return  # boot/daemon.py already redirected us to the log
+    base = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
+    for d in (os.path.join(base, "torando-gui", "logs"), os.environ.get("TEMP", "."), "."):
+        try:
+            os.makedirs(d, exist_ok=True)
+            fh = open(  # noqa: SIM115 — kept open for the process lifetime (it IS stdio)
+                os.path.join(d, "daemon.log"), "a", buffering=1, encoding="utf-8", errors="replace"
+            )
+            sys.stdout = fh
+            sys.stderr = fh
+            return
+        except OSError:
+            continue
 
 
 def _new_token(runtime_dir: Path, write_file: bool) -> str:
@@ -54,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _ensure_windows_log()
     args = build_parser().parse_args(argv)
     cfg_path = Path(args.config)
     cfg = config.load(cfg_path)

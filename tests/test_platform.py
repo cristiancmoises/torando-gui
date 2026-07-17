@@ -45,3 +45,26 @@ def test_tor_user_defaults():
 def test_kernel_has_ipv6_nonlinux_assumes_true(monkeypatch):
     monkeypatch.setattr(plat, "CURRENT", plat.WINDOWS)
     assert plat.kernel_has_ipv6() is True
+
+
+def test_run_argv_suppresses_console_window_on_windows(monkeypatch):
+    # On Windows every child (netsh/schtasks) would flash its own console when
+    # the daemon runs under pythonw; CREATE_NO_WINDOW (0x08000000) suppresses it.
+    import subprocess
+
+    captured = {}
+
+    def fake_run(argv, **kw):
+        captured.update(kw)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    monkeypatch.setattr(plat, "CURRENT", plat.WINDOWS)
+    plat.run_argv(["netsh", "x"])
+    assert captured.get("creationflags") == 0x08000000
+
+    captured.clear()
+    monkeypatch.setattr(plat, "CURRENT", plat.LINUX)
+    plat.run_argv(["iptables", "-L"])
+    assert "creationflags" not in captured  # never set off Windows
