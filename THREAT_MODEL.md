@@ -5,14 +5,24 @@ Read the non-goals before trusting it with anything.
 
 ## What it is
 
-A loopback web GUI plus a root daemon that automate the upstream `torando`
-transparent-proxy setup. It forces one local UID's egress through Tor's
-TransPort and DNSPort, drops everything else from that UID (the killswitch),
-pins `/etc/resolv.conf` to `127.0.0.1`, and manages a marker-delimited block in
-`/etc/tor/torrc`. The GUI is served only on loopback.
+A loopback web GUI plus a root/Administrator daemon that route a user's egress
+through Tor with a fail-closed killswitch. The mechanism is platform-specific:
 
-It does the same thing as running the upstream `torando.sh`/`toroff.sh` rules by
-hand, with torrc/resolv.conf management and a status view on top.
+- **Linux** — a per-UID *transparent* proxy: iptables REDIRECT of the UID's TCP
+  and UDP/53 to Tor's TransPort/DNSPort, a `DROP` killswitch for everything else,
+  and (new in 1.2.0) an **ip6tables IPv6 killswitch** that drops the UID's v6
+  egress. This is the original upstream `torando` behaviour, hardened.
+- **macOS / FreeBSD / OpenBSD** — a per-UID `pf` killswitch (`block out ...
+  user <uid>`, loopback and Tor's account exempt) hooked into `pf.conf`, plus a
+  system SOCKS proxy (macOS `networksetup`) or `torsocks`/per-app SOCKS (BSD).
+- **Windows** — a *machine-wide* model: the Windows Firewall set to block
+  outbound (whitelisting `tor.exe` and loopback) plus the WinINET system SOCKS
+  proxy. There is no per-process redirect without a kernel driver, which this
+  stdlib-only tool deliberately avoids.
+
+On every platform it pins DNS to `127.0.0.1` (`resolv.conf`+immutable flag,
+`networksetup`, or `netsh`) and, where it manages Tor, keeps a marker-delimited
+block in the `torrc`. The GUI is served only on loopback.
 
 ## Trust assumptions
 
@@ -72,19 +82,48 @@ against browsers, but the token file under `/run/torando-gui` is group-readable.
 A local user who can read it, or read the served page, can drive the API. Treat
 the host as single-user, or lock down the runtime directory.
 
-**IPv6 and non-UDP/53 DNS.** The ruleset is IPv4 and redirects UDP/53. Active
-IPv6 egress, DoT/DoH to a fixed resolver, or QUIC can route around it. Disabling
-IPv6 for the torified UID is the operator's job; it isn't automatic yet.
+**Non-UDP/53 DNS, and QUIC.** DoT/DoH to a fixed resolver bypasses the DNS pin
+(the traffic is still dropped by the killswitch unless it can reach Tor). On
+Linux, UDP other than DNS — including QUIC/HTTP3 on UDP/443 — is caught by the
+final `DROP`; on macOS/BSD the pf killswitch blocks the UID's non-torified
+TCP/UDP; on Windows the machine-wide block covers it. It is dropped, not leaked.
 
-**Other UIDs.** Only the selected UID is torified; everything else egresses
-normally.
+**IPv6 is blocked, not torified.** Since 1.2.0 the killswitch covers IPv6:
+Linux drops the UID's v6 egress with `ip6tables`, and the pf/Windows backends
+block v6 too. So v6 no longer *leaks*, but v6 destinations are simply
+unreachable for the routed user (Tor's v4 DNSPort still resolves AAAA records).
+If the kernel can carry IPv6 but `ip6tables` is unavailable, Linux **refuses to
+connect** rather than arm a killswitch with an open v6 path. `pf`'s `user` token
+only matches TCP/UDP, so ICMP/ICMPv6 for the user is not blocked on macOS/BSD.
+
+**Other UIDs.** On Linux/macOS/BSD only the selected UID is routed; everything
+else egresses normally. Windows is machine-wide by necessity: the whole machine
+is routed, so there is no per-user scoping there.
 
 ## Known weak points
 
 - The systemd unit runs as full root. A `CAP_NET_ADMIN` + `CAP_LINUX_IMMUTABLE`
   bounding set would shrink the blast radius, but the daemon also writes
   `/etc/tor` and calls `systemctl`, so it isn't in place yet.
-- No automatic IPv6 killswitch (see above). This is the top roadmap item.
+- **The macOS/BSD/Windows backends are beta.** The Linux transparent proxy is the
+  battle-tested path; the others were designed against vendor documentation but
+  each user should confirm on their host that the exit card shows Tor and that a
+  non-cooperating app is blocked with Tor stopped. Their killswitch is
+  authoritative (fail-closed), but the *routing into Tor* depends on apps
+  honouring the system SOCKS proxy.
+- **pf.conf editing (macOS/BSD).** The daemon hooks its killswitch anchor into
+  the main `pf.conf` with a marker block, validating the result with `pfctl -n`
+  before writing and backing the file up first; `status` reports the killswitch
+  as armed only when pf is enabled *and* the active ruleset actually references
+  the anchor. One caveat it cannot detect: pf stops at the first matching
+  `quick` rule, so a pre-existing `pass out quick …` earlier in your `pf.conf`
+  would be matched before the anchor and defeat the block. If your ruleset uses
+  quick-style pass rules, place the `anchor "torando-gui"` reference ahead of
+  them, and confirm with the exit card that traffic is actually routed.
+- **Windows is machine-wide** and honours the WinINET SOCKS proxy, which resolves
+  DNS locally (SOCKS4-style); the killswitch blocks port-53 egress and DNS is
+  pinned to Tor's DNSPort to compensate, but apps that bypass WinINET (Firefox
+  with its own proxy off, raw-socket tools) are blocked, not routed.
 - The exit check trusts `check.torproject.org`. If it's unreachable the UI
   reports "unknown" rather than guessing; it never fabricates a verdict.
 

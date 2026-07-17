@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Build every distributable artifact on a version tag and attach them to the
+# GitHub release. The Windows/macOS/BSD bundles are pure-Python payloads, so
+# they can be staged on Linux; the .deb/.rpm/AppImage need their native tooling.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packaging tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev rpm zstd zip icnsutils fakeroot
+
+      - name: Build Linux packages
+        run: |
+          sh packaging/build-deb.sh || echo "deb failed"
+          sh packaging/build-rpm.sh || echo "rpm failed"
+          sh packaging/build-tarball.sh || echo "tarball failed"
+
+      - name: Build Windows / macOS / BSD bundles
+        run: |
+          sh packaging/build-windows.sh
+          sh packaging/build-macos.sh
+          sh packaging/build-bsd.sh freebsd
+          sh packaging/build-bsd.sh openbsd
+
+      - name: List artifacts
+        run: ls -la dist/
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.zst
+            dist/*.zip
+            dist/*.tar.gz
+          generate_release_notes: true

@@ -4,6 +4,69 @@ All notable changes to **Torando Control** are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-07-16
+
+Cross-platform. Torando Control now runs on macOS, FreeBSD, OpenBSD and Windows
+alongside Linux, and the long-standing IPv6 leak is closed. Every backend is
+fail-closed: traffic that can't reach Tor is dropped, never sent in the clear.
+
+### Added — IPv6 killswitch (Linux)
+- **The killswitch now covers IPv6.** A new `ip6tables` ruleset (allow the UID's
+  loopback, `DROP` everything else) is armed whenever the kernel can carry IPv6.
+  IPv6 is blocked rather than torified — Tor's IPv4 DNSPort already resolves AAAA
+  records, so there is no v6 anonymity to gain, only a leak to close. This was
+  the #1 documented gap in the threat model. Kernel-generated neighbour
+  discovery has no socket owner, so a per-UID `--uid-owner` drop never touches
+  it. Toggle with `ipv6_killswitch` (default on).
+- **Fail-closed on a missing tool.** If the kernel has IPv6 but `ip6tables` is
+  unavailable, `connect()` now *refuses* rather than arm a killswitch with an
+  open v6 path. Set `ipv6_killswitch=false` to accept the risk.
+
+### Added — macOS, FreeBSD, OpenBSD (pf)
+- **A `pf` firewall backend.** A per-UID killswitch anchor (`block out ...
+  user <uid>`, loopback and Tor's `_tor` account exempt) is loaded with `pfctl`
+  and hooked into the main `pf.conf` through a marker-delimited block —
+  **validated with `pfctl -n` before writing**, so a broken hook is never
+  loaded (fail-safe). macOS additionally sets the **system SOCKS proxy** via
+  `networksetup`; the BSDs route through `torsocks`/per-app SOCKS. DNS is pinned
+  with `networksetup` (macOS) or `resolv.conf` + `chflags schg` (BSD).
+- **A macOS `.app` bundle** (unsigned, shell-script executable — builds on
+  Linux), a LaunchDaemon, an install/uninstall script, and a **Homebrew formula**.
+- **rc.d services** for FreeBSD (`service torando-gui`) and OpenBSD
+  (`rcctl … torando_gui`), with install scripts and release tarballs.
+
+### Added — Windows
+- **A machine-wide killswitch + system proxy.** Windows has no driverless
+  per-process redirect, so the honest model: the Windows Firewall is set to
+  block outbound on every profile (the prior policy is captured and restored on
+  disconnect; only our own named rules are added — never `netsh advfirewall
+  reset`), `tor.exe` and loopback are whitelisted, and the WinINET system SOCKS
+  proxy is pointed at Tor. Interface DNS is pinned with `netsh`. Admin detection
+  is stdlib-only (`ctypes`/`shell32`).
+- **A Windows release**: `.cmd` launchers, an `install.ps1` that registers the
+  daemon as a boot-time Scheduled Task (SYSTEM), and `uninstall.ps1`.
+
+### Changed
+- **Platform-aware everywhere.** New `platform`, `firewall`, `pf`, `winfw` and
+  `dns` modules; per-OS default paths (`/etc`, Homebrew prefix, `/usr/local`,
+  `%ProgramData%`); per-OS Tor service control (systemd/`service`/`rcctl`/`brew
+  services`/Scheduled Task). The proven Linux behaviour is byte-for-byte
+  unchanged. `pwd` is imported defensively so the daemon loads on Windows.
+- The backend firewall/DNS interface is now `cfg`-based, so each platform reads
+  exactly the context it needs.
+
+### Packaging / CI / Docs
+- `make windows macos freebsd openbsd`, a GitHub **release workflow** that builds
+  every artifact on a tag, and CI jobs on `windows-latest` and `macos-latest`
+  (the iptables/`resolv.conf` tests skip themselves off Linux).
+- README gets a platform-support matrix and per-OS install; USAGE and
+  THREAT_MODEL document the honest per-platform semantics and the IPv6 killswitch.
+
+### Tests
+- New suites for the IPv6 ruleset, the pf/Windows/DNS backends (all pure command
+  generation, exercised on Linux via fake runners), platform detection, per-OS
+  paths, and the fail-closed IPv6 composition. 144 tests, green on Linux.
+
 ## [1.1.0] — 2026-06-23
 
 A native desktop app, and the fixes for the bugs that could break connectivity.
@@ -142,6 +205,7 @@ Initial release.
   SOCKS framing, exit-check invariants, config, `torrc`/`resolv` editing and the
   server's access controls.
 
+[1.2.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.2.0
 [1.1.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.1.0
 [1.0.1]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.0.1
 [1.0.0]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.0.0

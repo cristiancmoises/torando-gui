@@ -20,9 +20,12 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Protocol
 
+from . import dns as dnsmod
 from . import geoip, netcfg, netcheck, services
+from . import platform as _plat
 from .config import Config, save
-from .engine import RULE_COUNT, Engine, resolve_uid
+from .engine import RULE_COUNT, resolve_uid
+from .firewall import make_firewall
 from .netcheck import ExitInfo
 from .torctl import Bootstrap, TorControl
 
@@ -31,10 +34,10 @@ _UNSET: object = object()
 
 
 class Backend(Protocol):
-    def iptables_available(self) -> bool: ...
-    def apply_rules(self, uid: int, trans: int, dns: int) -> None: ...
-    def remove_rules(self, uid: int, trans: int, dns: int) -> None: ...
-    def rules_status(self, uid: int, trans: int, dns: int) -> dict[str, object]: ...
+    def firewall_available(self) -> bool: ...
+    def apply_rules(self, cfg: Config) -> None: ...
+    def remove_rules(self, cfg: Config) -> None: ...
+    def rules_status(self, cfg: Config) -> dict[str, object]: ...
     def tor_status(self) -> dict[str, object]: ...
     def reload_tor(self) -> dict[str, object]: ...
     def control_bootstrap(self) -> Bootstrap | None: ...
@@ -46,15 +49,21 @@ class Backend(Protocol):
     def lock_resolv(self, cfg: Config) -> dict[str, object]: ...
     def unlock_resolv(self, cfg: Config) -> dict[str, object]: ...
     def resolv_is_pinned(self, cfg: Config) -> bool: ...
-    def resolv_nameserver(self, path: str) -> str: ...
+    def resolv_nameserver(self, cfg: Config) -> str: ...
     def candidate_users(self) -> list[dict[str, object]]: ...
 
 
 class SystemBackend:
-    """Real backend. Every method here changes or reads actual system state."""
+    """Real backend. Every method here changes or reads actual system state.
+
+    The firewall and DNS mechanisms are chosen for the host platform at
+    construction (iptables/ip6tables on Linux, ``pf`` on macOS/BSD, ``netsh`` +
+    WinINET on Windows); the orchestration in :class:`App` is identical for all.
+    """
 
     def __init__(self, control_host: str, control_port: int) -> None:
-        self._engine = Engine()
+        self._firewall = make_firewall()
+        self._dns = dnsmod.make_dns()
         self._ctl_host = control_host
         self._ctl_port = control_port
         self._geoip_cache: object = _UNSET
@@ -63,17 +72,17 @@ class SystemBackend:
     def _ctl(self) -> TorControl:
         return TorControl(self._ctl_host, self._ctl_port)
 
-    def iptables_available(self) -> bool:
-        return self._engine.available()
+    def firewall_available(self) -> bool:
+        return self._firewall.available()
 
-    def apply_rules(self, uid: int, trans: int, dns: int) -> None:
-        self._engine.apply(uid, trans, dns)
+    def apply_rules(self, cfg: Config) -> None:
+        self._firewall.apply(cfg)
 
-    def remove_rules(self, uid: int, trans: int, dns: int) -> None:
-        self._engine.remove(uid, trans, dns)
+    def remove_rules(self, cfg: Config) -> None:
+        self._firewall.remove(cfg)
 
-    def rules_status(self, uid: int, trans: int, dns: int) -> dict[str, object]:
-        return self._engine.status(uid, trans, dns)
+    def rules_status(self, cfg: Config) -> dict[str, object]:
+        return self._firewall.status(cfg)
 
     def tor_status(self) -> dict[str, object]:
         return services.tor_service_status()
@@ -134,23 +143,16 @@ class SystemBackend:
         netcfg.apply_torrc(cfg)
 
     def lock_resolv(self, cfg: Config) -> dict[str, object]:
-        return netcfg.lock_resolv(cfg)
+        return self._dns.lock(cfg)
 
     def unlock_resolv(self, cfg: Config) -> dict[str, object]:
-        return netcfg.unlock_resolv(cfg)
+        return self._dns.restore(cfg)
 
     def resolv_is_pinned(self, cfg: Config) -> bool:
-        return netcfg.resolv_is_pinned(cfg)
+        return self._dns.is_pinned(cfg)
 
-    def resolv_nameserver(self, path: str) -> str:
-        try:
-            for line in Path(path).read_text(encoding="utf-8").splitlines():
-                s = line.strip()
-                if s.startswith("nameserver"):
-                    return s.split(None, 1)[1] if len(s.split()) > 1 else ""
-        except OSError:
-            return ""
-        return ""
+    def resolv_nameserver(self, cfg: Config) -> str:
+        return self._dns.nameserver(cfg)
 
     def candidate_users(self) -> list[dict[str, object]]:
         return services.candidate_users()
@@ -163,17 +165,17 @@ class MockBackend:
         self._active = False
         self._t0 = 0.0
 
-    def iptables_available(self) -> bool:
+    def firewall_available(self) -> bool:
         return True
 
-    def apply_rules(self, uid: int, trans: int, dns: int) -> None:
+    def apply_rules(self, cfg: Config) -> None:
         self._active = True
         self._t0 = time.monotonic()
 
-    def remove_rules(self, uid: int, trans: int, dns: int) -> None:
+    def remove_rules(self, cfg: Config) -> None:
         self._active = False
 
-    def rules_status(self, uid: int, trans: int, dns: int) -> dict[str, object]:
+    def rules_status(self, cfg: Config) -> dict[str, object]:
         n = RULE_COUNT if self._active else 0
         return {
             "rules_total": RULE_COUNT,
@@ -224,7 +226,7 @@ class MockBackend:
     def resolv_is_pinned(self, cfg: Config) -> bool:
         return self._active
 
-    def resolv_nameserver(self, path: str) -> str:
+    def resolv_nameserver(self, cfg: Config) -> str:
         return "127.0.0.1" if self._active else "192.168.1.1"
 
     def candidate_users(self) -> list[dict[str, object]]:
@@ -281,14 +283,17 @@ class App:
         self._config_path = config_path
         self._oplock = threading.Lock()
         self.log = _LogBus()
+        # On Windows the killswitch is machine-wide (no per-UID redirect exists
+        # without a driver), so a target user is neither required nor meaningful.
+        self.machine_wide = _plat.is_windows()
 
     # --- read paths ----------------------------------------------------
     def status(self) -> dict[str, object]:
         cfg = self.cfg
         uid = cfg.target_uid
         rules = (
-            self.backend.rules_status(uid, cfg.trans_port, cfg.dns_port)
-            if uid is not None
+            self.backend.rules_status(cfg)
+            if uid is not None or self.machine_wide
             else {
                 "rules_total": RULE_COUNT,
                 "rules_present": 0,
@@ -299,7 +304,7 @@ class App:
         boot = self.backend.control_bootstrap()
         ctl = self.backend.control_available()
         tor = self.backend.tor_status()
-        ns = self.backend.resolv_nameserver(cfg.resolv_path)
+        ns = self.backend.resolv_nameserver(cfg)
         return {
             "mock": self.mock,
             "active": bool(rules["active"]),
@@ -335,11 +340,12 @@ class App:
     def connect(self) -> dict[str, object]:
         with self._oplock:
             cfg = self.cfg
-            if cfg.target_uid is None:
+            if cfg.target_uid is None and not self.machine_wide:
                 raise ValueError("no target user selected")
-            if not self.backend.iptables_available():
-                raise RuntimeError("iptables not available")
-            self.log.emit("info", f"routing uid {cfg.target_uid} through Tor")
+            if not self.backend.firewall_available():
+                raise RuntimeError("firewall tooling not available")
+            target = "the whole machine" if self.machine_wide else f"uid {cfg.target_uid}"
+            self.log.emit("info", f"routing {target} through Tor")
             rules_applied = False
             try:
                 # 1) Tor config (inert until reload; never fatal on Guix where
@@ -349,17 +355,19 @@ class App:
                     self.log.emit("info", "torrc managed block written")
                     res = self.backend.reload_tor()
                     self.log.emit("info" if res["ok"] else "warn", f"tor reload: {res}")
-                # 2) Firewall FIRST: this installs the DNS redirect + killswitch,
-                #    so by the time resolv.conf points at 127.0.0.1 the redirect
-                #    to Tor's DNSPort is already live.
-                self.backend.apply_rules(cfg.target_uid, cfg.trans_port, cfg.dns_port)
+                # 2) Firewall FIRST: this arms the killswitch (and, on Linux, the
+                #    DNS redirect), so by the time resolv.conf points at 127.0.0.1
+                #    the path to Tor's DNSPort is already live.
+                self.backend.apply_rules(cfg)
                 rules_applied = True
-                self.log.emit("info", "netfilter rules applied (killswitch armed)")
-                # 3) Pin DNS LAST. If anything above failed, resolv.conf was
-                #    never touched, so a failed connect never degrades host DNS.
+                self.log.emit("info", "firewall rules applied (killswitch armed)")
+                # 3) Pin DNS LAST. If anything above failed, DNS was never
+                #    touched, so a failed connect never degrades host DNS.
                 if cfg.lock_resolv:
                     r = self.backend.lock_resolv(cfg)
-                    self.log.emit("info", f"resolv.conf -> 127.0.0.1 (immutable={r['immutable']})")
+                    self.log.emit(
+                        "info", f"DNS pinned -> 127.0.0.1 (immutable={r.get('immutable')})"
+                    )
             except Exception:
                 # Roll everything back so a failed connect leaves the host
                 # exactly as it found it: rules removed, DNS restored.
@@ -367,8 +375,8 @@ class App:
                     if cfg.lock_resolv:
                         self.backend.unlock_resolv(cfg)
                     if rules_applied:
-                        self.backend.remove_rules(cfg.target_uid, cfg.trans_port, cfg.dns_port)
-                    self.log.emit("warn", "connect failed; rolled back rules + resolv.conf")
+                        self.backend.remove_rules(cfg)
+                    self.log.emit("warn", "connect failed; rolled back rules + DNS")
                 raise
             return self.status()
 
@@ -380,10 +388,10 @@ class App:
             # resolver — the #1 thing that must never be left broken.
             r = self.backend.unlock_resolv(cfg)
             note = f"; {r['note']}" if r.get("note") else ""
-            self.log.emit("info", f"resolv.conf restored (restored={r.get('restored')}{note})")
-            if cfg.target_uid is not None:
-                self.backend.remove_rules(cfg.target_uid, cfg.trans_port, cfg.dns_port)
-                self.log.emit("info", "netfilter rules removed")
+            self.log.emit("info", f"DNS restored (restored={r.get('restored')}{note})")
+            if cfg.target_uid is not None or self.machine_wide:
+                self.backend.remove_rules(cfg)
+                self.log.emit("info", "firewall rules removed")
             return self.status()
 
     def recover_orphaned_dns(self) -> None:
@@ -395,8 +403,8 @@ class App:
             if not self.backend.resolv_is_pinned(cfg):
                 return
             routing = False
-            if cfg.target_uid is not None:
-                st = self.backend.rules_status(cfg.target_uid, cfg.trans_port, cfg.dns_port)
+            if cfg.target_uid is not None or self.machine_wide:
+                st = self.backend.rules_status(cfg)
                 routing = bool(st.get("killswitch"))
             if routing:
                 return  # genuinely connected — leave the pin in place
@@ -422,7 +430,7 @@ class App:
             merged.update(patch)
             new = Config.from_dict(merged)
             _validate(new)
-            if new.target_uid is not None:
+            if new.target_uid is not None and not self.machine_wide:
                 resolve_uid(new.target_uid)  # raises if not a real account
             # Refuse routing-relevant changes while connected: disconnect first.
             if self._is_routing():
@@ -441,10 +449,10 @@ class App:
 
     def _is_routing(self) -> bool:
         cfg = self.cfg
-        if cfg.target_uid is None:
+        if cfg.target_uid is None and not self.machine_wide:
             return False
         try:
-            st = self.backend.rules_status(cfg.target_uid, cfg.trans_port, cfg.dns_port)
+            st = self.backend.rules_status(cfg)
             return bool(st.get("killswitch"))
         except Exception:  # noqa: BLE001 — never block a config edit on a probe error
             return False

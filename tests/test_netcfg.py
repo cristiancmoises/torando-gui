@@ -8,9 +8,15 @@ from __future__ import annotations
 import os
 import stat
 import subprocess
+import sys
 
-from torando_gui.config import TORRC_BEGIN, TORRC_END, Config
-from torando_gui.netcfg import (
+import pytest
+
+if sys.platform == "win32":  # resolv.conf pinning + POSIX file modes are not a Windows concept
+    pytest.skip("resolv.conf pinning is POSIX-only", allow_module_level=True)
+
+from torando_gui.config import TORRC_BEGIN, TORRC_END, Config  # noqa: E402
+from torando_gui.netcfg import (  # noqa: E402
     apply_torrc,
     lock_resolv,
     merge_torrc,

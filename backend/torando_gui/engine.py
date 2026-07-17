@@ -30,10 +30,14 @@ every rule it added if a later one fails, so the table is never left half-built.
 from __future__ import annotations
 
 import contextlib
-import pwd
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
+
+try:
+    import pwd  # POSIX-only; absent on Windows (which never resolves a UID).
+except ImportError:  # pragma: no cover - exercised only on Windows
+    pwd = None  # type: ignore[assignment]
 
 Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
@@ -63,6 +67,8 @@ def resolve_uid(user_or_uid: str | int) -> int:
     the single choke point that makes the rest of the engine injection-proof:
     the value handed to iptables is always an ``int`` we just validated.
     """
+    if pwd is None:
+        raise EngineError("UID resolution is not available on this platform")
     if isinstance(user_or_uid, int) or (isinstance(user_or_uid, str) and user_or_uid.isdigit()):
         uid = int(user_or_uid)
         try:
@@ -142,6 +148,34 @@ def build_rules(uid: int, trans_port: int, dns_port: int) -> list[Rule]:
 RULE_COUNT = 7
 
 
+def build_v6_rules(uid: int) -> list[Rule]:
+    """Return the per-UID IPv6 killswitch ruleset (ip6tables filter/OUTPUT).
+
+    IPv4 is transparently torified; IPv6 is simply *blocked* for the UID. The
+    v4 DNSPort already resolves AAAA records through Tor, so there is no v6
+    anonymity to gain by torifying v6 — but an un-firewalled v6 path would let
+    the UID's traffic escape Tor entirely, which is exactly the leak this closes.
+
+      1. filter/OUTPUT  -o lo   -> ACCEPT   (loopback stays local)
+      2. filter/OUTPUT  (rest)  -> DROP     (the v6 killswitch)
+
+    Kernel-generated ICMPv6 (neighbour discovery, router solicitation) carries
+    no socket owner, so a non-inverted ``--uid-owner`` DROP never matches it —
+    v6 on-link connectivity for the rest of the system is unaffected.
+    """
+    if not isinstance(uid, int) or uid < 0:
+        raise EngineError("build_v6_rules requires a validated non-negative uid")
+    owner = ("-m", "owner", "--uid-owner", str(uid))
+    return [
+        Rule("filter", "OUTPUT", (*owner, "-o", "lo", "-j", "ACCEPT")),
+        Rule("filter", "OUTPUT", (*owner, "-j", "DROP")),
+    ]
+
+
+# Number of rules build_v6_rules() emits.
+V6_RULE_COUNT = 2
+
+
 class Engine:
     """Applies and removes the torando ruleset for a single UID."""
 
@@ -150,8 +184,11 @@ class Engine:
         self._run = runner or _default_runner
 
     def _argv(self, op: str, rule: Rule) -> list[str]:
-        # op is one of -C (check), -A (append), -D (delete).
-        return [self._iptables, "-t", rule.table, op, rule.chain, *rule.spec]
+        # op is one of -C (check), -A (append), -D (delete). ``-w 5`` waits up to
+        # 5s for the xtables lock instead of failing immediately, so a concurrent
+        # firewalld/docker/NetworkManager run can't make us mis-report a rule as
+        # absent (exit 4) and orphan or double-add it.
+        return [self._iptables, "-w", "5", "-t", rule.table, op, rule.chain, *rule.spec]
 
     def available(self) -> bool:
         try:
@@ -176,9 +213,14 @@ class Engine:
             if res.returncode != 0:
                 raise EngineError(res.stderr.strip() or "iptables delete failed")
 
-    def apply(self, uid: int, trans_port: int, dns_port: int) -> None:
-        """Add all rules; on any failure, remove the ones already added."""
-        rules = build_rules(uid, trans_port, dns_port)
+    def apply_list(self, rules: list[Rule]) -> list[Rule]:
+        """Add every rule in *rules*; on any failure, remove the ones added.
+
+        This is the transactional primitive both the IPv4 ruleset and the IPv6
+        killswitch use, so neither table is ever left half-built. Returns the
+        rules this call actually appended (those not already present), so a
+        caller can roll back exactly what it added and nothing it didn't.
+        """
         added: list[Rule] = []
         try:
             for rule in rules:
@@ -192,19 +234,50 @@ class Engine:
                 with contextlib.suppress(EngineError):
                     self._del(rule)
             raise
+        return added
 
-    def remove(self, uid: int, trans_port: int, dns_port: int) -> None:
-        """Remove all rules. Missing rules are not an error."""
-        for rule in reversed(build_rules(uid, trans_port, dns_port)):
-            self._del(rule)
+    def remove_list(self, rules: list[Rule]) -> None:
+        """Remove every rule in *rules* (in reverse), best-effort. Missing rules
+        are fine, and a failure to delete one never stops the others — teardown
+        must always attempt the whole set so nothing is left stranded."""
+        for rule in reversed(rules):
+            with contextlib.suppress(EngineError):
+                self._del(rule)
 
-    def status(self, uid: int, trans_port: int, dns_port: int) -> dict[str, object]:
-        """Report which rules are currently present."""
-        rules = build_rules(uid, trans_port, dns_port)
+    def status_list(self, rules: list[Rule]) -> dict[str, object]:
+        """Report which of *rules* are currently present."""
         present = [self.rule_exists(r) for r in rules]
         return {
             "rules_total": len(rules),
             "rules_present": sum(present),
             "active": all(present),
-            "killswitch": present[-1],  # the DROP rule
+            "killswitch": bool(present) and present[-1],  # the DROP rule
         }
+
+    def apply(self, uid: int, trans_port: int, dns_port: int) -> None:
+        """Add the IPv4 transparent-proxy + killswitch ruleset (transactional)."""
+        self.apply_list(build_rules(uid, trans_port, dns_port))
+
+    def remove(self, uid: int, trans_port: int, dns_port: int) -> None:
+        """Remove the IPv4 ruleset. Missing rules are not an error."""
+        self.remove_list(build_rules(uid, trans_port, dns_port))
+
+    def status(self, uid: int, trans_port: int, dns_port: int) -> dict[str, object]:
+        """Report which IPv4 rules are currently present."""
+        return self.status_list(build_rules(uid, trans_port, dns_port))
+
+
+class Ip6Engine(Engine):
+    """The IPv6 killswitch, applied with ``ip6tables`` (same argv machinery)."""
+
+    def __init__(self, ip6tables: str = "ip6tables", runner: Runner | None = None) -> None:
+        super().__init__(iptables=ip6tables, runner=runner)
+
+    def apply_v6(self, uid: int) -> None:
+        self.apply_list(build_v6_rules(uid))
+
+    def remove_v6(self, uid: int) -> None:
+        self.remove_list(build_v6_rules(uid))
+
+    def status_v6(self, uid: int) -> dict[str, object]:
+        return self.status_list(build_v6_rules(uid))

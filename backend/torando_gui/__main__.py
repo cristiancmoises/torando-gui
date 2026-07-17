@@ -57,13 +57,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.port:
         cfg.port = args.port
 
-    # Emergency DNS recovery: undo a resolv.conf pin/lock and exit. Needs root
-    # but no Tor and no server — the escape hatch when a session left DNS down.
+    # Emergency DNS recovery: undo a DNS pin/lock and exit. Needs root but no
+    # Tor and no server — the escape hatch when a session left DNS down. Uses
+    # the platform pinner (resolv.conf on Linux/BSD, networksetup on macOS,
+    # netsh on Windows).
     if args.restore_dns:
-        from . import netcfg
+        from . import dns as dnsmod
 
-        res = netcfg.restore_resolv(cfg)
-        print(f"resolv.conf restore: {res}", file=sys.stderr)
+        res = dnsmod.make_dns().restore(cfg)
+        print(f"DNS restore: {res}", file=sys.stderr)
         return 0 if res.get("restored") or not res.get("note") else 1
 
     if cfg.host != "127.0.0.1" and not args.mock:

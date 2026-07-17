@@ -23,6 +23,8 @@ import urllib.error
 import urllib.request
 import webbrowser
 
+from . import platform as _plat
+
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8088
 
@@ -43,20 +45,49 @@ def _reachable(url: str, timeout: float = 1.5) -> bool:
 
 
 def _start_service() -> str:
-    """Ask systemd (via polkit) to start the daemon. Returns any error text."""
-    if shutil.which("systemctl") is None:
-        return "systemctl not found"
-    # User invocation triggers polkit; the shipped policy authorizes it.
-    # systemctl is resolved via PATH so this works across FHS distros and Guix.
-    proc = subprocess.run(
-        ["systemctl", "start", "torando-gui.service"],  # noqa: S607
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        return (proc.stderr or proc.stdout or "systemctl start failed").strip()
-    return ""
+    """Ask the init system to start the daemon. Returns any error text.
+
+    Only the systemd path can start the daemon without an interactive prompt
+    (via the shipped polkit policy). On the other platforms elevation needs a
+    password/consent the launcher can't supply, so it returns a hint instead.
+    """
+    if _plat.CURRENT == _plat.LINUX and shutil.which("systemctl"):
+        # User invocation triggers polkit; the shipped policy authorizes it.
+        proc = subprocess.run(
+            ["systemctl", "start", "torando-gui.service"],  # noqa: S607
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            return (proc.stderr or proc.stdout or "systemctl start failed").strip()
+        return ""
+    return "daemon not running"
+
+
+def _start_hint() -> str:
+    """A platform-appropriate 'how to start the daemon' message."""
+    p = _plat.CURRENT
+    if p == _plat.WINDOWS:
+        return (
+            "Start the daemon as Administrator:  torando-guid\n"
+            "(or install the boot task from packaging\\windows\\install.ps1)"
+        )
+    if p == _plat.MACOS:
+        return (
+            "Start the daemon as root:  sudo torando-guid\n"
+            "(or load the LaunchDaemon: sudo launchctl load "
+            "/Library/LaunchDaemons/co.securityops.torando-gui.plist)"
+        )
+    if _plat.is_bsd(p):
+        if shutil.which("rcctl"):
+            return "Start it with:  doas rcctl start torando-gui   (OpenBSD)"
+        return "Start it with:  sudo service torando-gui start   (FreeBSD)"
+    if shutil.which("systemctl"):
+        return "Start it with:  sudo systemctl start torando-gui.service"
+    if shutil.which("herd"):
+        return "Start it with:  sudo herd start torando-gui   (Guix System)"
+    return "Start the daemon as root:  sudo torando-guid"
 
 
 def ensure_daemon() -> tuple[bool, str]:
@@ -71,14 +102,8 @@ def ensure_daemon() -> tuple[bool, str]:
             time.sleep(0.5)
     if _reachable(url):
         return True, ""
-    # Build a distro-appropriate hint for the failure surface.
-    if shutil.which("systemctl"):
-        hint = "Start it with:  sudo systemctl start torando-gui.service"
-    elif shutil.which("herd"):
-        hint = "Start it with:  sudo herd start torando-gui   (Guix System)"
-    else:
-        hint = "Start the daemon as root:  sudo torando-guid"
-    if start_error:
+    hint = _start_hint()
+    if start_error and start_error != "daemon not running":
         hint = f"{start_error}\n{hint}"
     return False, hint
 

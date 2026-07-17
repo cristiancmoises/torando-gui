@@ -5,12 +5,24 @@ resolver must reject non-accounts, and apply() must roll back on failure."""
 
 from __future__ import annotations
 
-import os
-import pwd
 import subprocess
+import sys
 
 import pytest
-from torando_gui.engine import Engine, EngineError, Rule, build_rules, resolve_uid
+
+if sys.platform == "win32":  # the iptables engine + pwd-based UID resolution are POSIX-only
+    pytest.skip("iptables engine is POSIX-only", allow_module_level=True)
+
+import os  # noqa: E402
+import pwd  # noqa: E402
+
+from torando_gui.engine import (  # noqa: E402
+    Engine,
+    EngineError,
+    Rule,
+    build_rules,
+    resolve_uid,
+)
 
 
 def _cp(argv, rc=0, out="", err=""):
@@ -30,7 +42,8 @@ class FakeIptables:
         self.calls.append(argv)
         if "--version" in argv:
             return _cp(argv, 0)
-        table, op, chain, spec = argv[2], argv[3], argv[4], tuple(argv[5:])
+        i = argv.index("-t")  # tolerate a leading "-w 5" lock-wait
+        table, op, chain, spec = argv[i + 1], argv[i + 2], argv[i + 3], tuple(argv[i + 4 :])
         key = (table, chain, spec)
         if op == "-C":
             return _cp(argv, 0 if key in self.present else 1)
@@ -55,23 +68,27 @@ def test_build_rules_shape_and_order():
     assert rules[0] == Rule("nat", "OUTPUT", (*owner, "-d", "127.0.0.0/8", "-j", "RETURN"))
     # 2. TCP -> Tor TransPort
     assert rules[1] == Rule(
-        "nat", "OUTPUT",
+        "nat",
+        "OUTPUT",
         (*owner, "-p", "tcp", "-m", "tcp", "-j", "REDIRECT", "--to-ports", "9040"),
     )
     # 3. DNS (udp/53) -> Tor DNSPort
     assert rules[2] == Rule(
-        "nat", "OUTPUT",
+        "nat",
+        "OUTPUT",
         (*owner, "-p", "udp", "-m", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", "53"),
     )
     # 4. loopback output accepted (critical: the daemon UI is on 127.0.0.1)
     assert rules[3] == Rule("filter", "OUTPUT", (*owner, "-o", "lo", "-j", "ACCEPT"))
     # 5/6. torified TCP/DNS accepted
     assert rules[4] == Rule(
-        "filter", "OUTPUT",
+        "filter",
+        "OUTPUT",
         (*owner, "-p", "tcp", "-m", "tcp", "--dport", "9040", "-j", "ACCEPT"),
     )
     assert rules[5] == Rule(
-        "filter", "OUTPUT",
+        "filter",
+        "OUTPUT",
         (*owner, "-p", "udp", "-m", "udp", "--dport", "53", "-j", "ACCEPT"),
     )
     # 7. killswitch must be the LAST filter rule (drop everything else)
@@ -140,9 +157,9 @@ def test_apply_is_idempotent():
     fake = FakeIptables()
     eng = Engine(runner=fake)
     eng.apply(1000, 9040, 53)
-    appends_after_first = sum(1 for c in fake.calls if c[3] == "-A")
+    appends_after_first = sum(1 for c in fake.calls if "-A" in c)
     eng.apply(1000, 9040, 53)  # second run must add nothing
-    appends_total = sum(1 for c in fake.calls if c[3] == "-A")
+    appends_total = sum(1 for c in fake.calls if "-A" in c)
     assert appends_after_first == 7
     assert appends_total == 7
 
@@ -154,7 +171,7 @@ def test_apply_rolls_back_added_rules_on_failure():
         eng.apply(1000, 9040, 53)
     # the two rules added before the failure must have been deleted
     assert fake.present == set()
-    assert any(c[3] == "-D" for c in fake.calls)
+    assert any("-D" in c for c in fake.calls)
 
 
 def test_rollback_preserves_preexisting_rules():

@@ -62,9 +62,7 @@ def run(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 — ANY toolkit problem must fall back
         # ImportError (no PyGObject), ValueError (typelib version absent),
         # AttributeError (a shadowing `gi`), etc. — never crash; use the browser.
-        sys.stderr.write(
-            f"native GUI unavailable ({exc}); opening in your browser instead.\n"
-        )
+        sys.stderr.write(f"native GUI unavailable ({exc}); opening in your browser instead.\n")
         from .launcher import open_in_browser
 
         return open_in_browser(argv)
@@ -74,7 +72,7 @@ def run(argv: list[str] | None = None) -> int:
 
     app = Gtk.Application(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
 
-    def on_activate(application: "Gtk.Application") -> None:
+    def on_activate(application: Gtk.Application) -> None:
         win = Gtk.ApplicationWindow(application=application)
         win.set_title(TITLE)
         win.set_default_size(1024, 768)

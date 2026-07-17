@@ -1,14 +1,17 @@
 # Usage
 
-Torando Control routes one Linux user's entire network egress through Tor, with
-a killswitch: anything that can't go through Tor is dropped, never sent in the
-clear. It's two programs:
+Torando Control routes a user's network egress through Tor with a killswitch:
+anything that can't go through Tor is dropped, never sent in the clear. On Linux
+it's a per-user *transparent* proxy; on macOS, the BSDs and Windows it sets the
+system SOCKS proxy and blocks everything that tries to bypass it (see
+[Platform notes](#platform-notes)). It's two programs:
 
-- `torando-guid`, the root daemon. It programs netfilter, manages `resolv.conf`,
-  talks to Tor's control port, and serves the UI on `127.0.0.1:8088`.
-- `torando-gui`, the front end. By default it opens a GTK4/WebKitGTK desktop
-  window; without that stack it falls back to your browser. It has no
-  privileges and only talks to the daemon over loopback.
+- `torando-guid`, the root/Administrator daemon. It programs the firewall
+  (iptables/ip6tables, `pf`, or Windows Firewall), manages DNS, talks to Tor's
+  control port, and serves the UI on `127.0.0.1:8088`.
+- `torando-gui`, the front end. On Linux it opens a GTK4/WebKitGTK desktop
+  window; without that stack (and by default elsewhere) it falls back to your
+  browser. It has no privileges and only talks to the daemon over loopback.
 
 Read [THREAT_MODEL.md](../THREAT_MODEL.md) first. This is not Tor Browser: it
 routes packets, it does not anonymize application fingerprints.
@@ -84,15 +87,20 @@ the app's settings or by hand:
 | Key | Default | Notes |
 |---|---|---|
 | `host` / `port` | `127.0.0.1` / `8088` | Control surface, loopback only. |
-| `trans_port` | `9040` | Tor TransPort. Must match your Tor. |
+| `trans_port` | `9040` | Tor TransPort (Linux transparent redirect). Must match your Tor. |
 | `dns_port` | `53` | Tor DNSPort. Set to match your Tor (often `5353`). |
-| `socks_port` | `9050` | Tor SocksPort (used for exit verification). |
+| `socks_port` | `9050` | Tor SocksPort (exit verification; the system proxy on macOS/Windows). |
 | `control_port` | `9051` | Tor ControlPort (bootstrap/NEWNYM, cookie auth). |
-| `target_uid` | `null` | UID to torify. Set in the app. |
-| `manage_torrc` | `true` | Write a managed block into `torrc`. Turn off where Tor is configured elsewhere (e.g. Guix). |
-| `lock_resolv` | `true` | Pin (and make immutable) `resolv.conf`. |
+| `target_uid` | `null` | UID to torify. Set in the app. Ignored on Windows (machine-wide). |
+| `manage_torrc` | `true` | Write a managed block into `torrc`. Turn off where Tor is configured elsewhere (Guix, Homebrew, the Expert Bundle). |
+| `lock_resolv` | `true` | Pin (and make immutable) DNS. |
+| `ipv6_killswitch` | `true` | Block the UID's IPv6 egress (Linux ip6tables / pf `inet6`). Leave on unless you have no IPv6. |
 | `exit_country` | `null` | ISO code (e.g. `de`) to pin the exit country. |
 | `use_bridges` / `bridges` | `false` / `[]` | Optional bridge lines. |
+| `tor_user` | `null` | Account Tor runs as, for the pf exemption (defaults to `_tor` on macOS/BSD). |
+| `tor_path` | `null` | Path to `tor.exe` the Windows firewall whitelists (required on Windows). |
+| `pf_anchor` | `torando-gui` | Name of the pf anchor the daemon owns (macOS/BSD). |
+| `allow_lan` / `allow_dhcp` | `false` / `true` | Windows: also permit the local subnet / DHCP under the killswitch. |
 
 `target_uid`, `trans_port` and `dns_port` define the live rules, so the app
 refuses to change them while connected. Disconnect first.
@@ -116,10 +124,55 @@ shows the exit IP and `IsTor` verdict. If it can't run the check it shows
 
 ## Platform notes
 
+The killswitch is fail-closed everywhere; the routing mechanism differs because
+the OS primitives do. On Linux only, apps need no configuration. Elsewhere,
+configure apps to use the system SOCKS proxy at `127.0.0.1:9050` (most browsers
+and many tools do this automatically once the system proxy is set) — anything
+that ignores it is blocked, not leaked.
+
+### Linux
 - Debian/Ubuntu, Fedora/RHEL, Arch: the systemd unit plus polkit rule let an
   active local session start and stop the service without a password.
+- The IPv6 killswitch needs `ip6tables`. If the kernel has IPv6 but `ip6tables`
+  is missing, connect refuses (rather than leave v6 open) — install it, or set
+  `ipv6_killswitch=false`.
 - Guix System: use the Shepherd service. Tor's `/etc/tor/torrc` is a read-only
   store symlink owned by `tor-service-type`, so `manage_torrc` is seeded off and
   `dns_port` to 5353. Manage Tor with `herd`, not the GUI's start/stop.
 - Native window: needs GTK4, WebKitGTK and PyGObject. Without them you still get
   the full UI in a browser.
+
+### macOS
+- Install Tor with Homebrew (`brew install tor && brew services start tor`). The
+  daemon leaves `torrc` alone by default (`manage_torrc=false`); set your
+  `SocksPort`/`DNSPort` in the brew `torrc`.
+- Connect sets the **system SOCKS proxy** (`networksetup -setsocksfirewallproxy`)
+  on every active network service and loads a per-UID `pf` killswitch anchor,
+  hooked into `/etc/pf.conf` via a validated marker block. DNS is pinned with
+  `networksetup -setdnsservers 127.0.0.1` (not `/etc/resolv.conf`, which macOS
+  ignores). Disconnect restores the captured proxy/DNS.
+- The `.app` is unsigned; first launch needs Right-click → Open, or
+  `xattr -dr com.apple.quarantine "/Applications/Torando Control.app"`.
+- pf's `user` match only tags TCP/UDP, so ICMP for the user is not blocked — a
+  documented limitation.
+
+### FreeBSD / OpenBSD
+- Install the `tor` package; it runs as `_tor`. Enable pf
+  (`sysrc pf_enable=YES && service pf start` on FreeBSD).
+- Connect loads a per-UID `pf` killswitch anchor and pins DNS in
+  `/etc/resolv.conf` with `chflags schg`. Route apps through Tor with `torsocks`
+  or per-app SOCKS at `127.0.0.1:9050` (there is no system-wide SOCKS setting on
+  the BSDs).
+- The rc.d service is `torando-gui` (FreeBSD) / `torando_gui` (OpenBSD).
+
+### Windows
+- The killswitch is **machine-wide** — there is no driverless per-process
+  redirect on Windows, so there is no "target user". Connect flips the Windows
+  Firewall to block outbound on every profile (capturing the prior policy first),
+  whitelists `tor.exe` (from `tor_path`) and loopback, points the WinINET system
+  proxy at Tor, and pins interface DNS with `netsh`. Disconnect restores all of
+  it and deletes only the rules it added — it never runs `netsh advfirewall
+  reset`.
+- Install a [Tor Expert Bundle](https://www.torproject.org/download/tor/) and set
+  `tor_path` to its `tor.exe`. The daemon must run elevated (the boot Scheduled
+  Task from `install.ps1` runs it as SYSTEM).

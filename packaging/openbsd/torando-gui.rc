@@ -1,0 +1,31 @@
+#!/bin/ksh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
+#
+# OpenBSD rc.d script for the Torando Control root daemon.
+# Install to /etc/rc.d/torando_gui and enable with:
+#   rcctl enable torando_gui
+#   rcctl start torando_gui
+
+daemon="/usr/local/bin/python3 -m torando_gui"
+daemon_flags=
+daemon_user="root"
+
+. /etc/rc.d/rc.subr
+
+pexp="python3 -m torando_gui.*"
+rc_bg=YES
+
+rc_start() {
+    PYTHONPATH="/usr/local/lib/torando-gui" \
+        ${rcexec} "${daemon} ${daemon_flags}"
+}
+
+rc_stop() {
+    # Restore DNS before killing the daemon.
+    PYTHONPATH="/usr/local/lib/torando-gui" \
+        /usr/local/bin/python3 -m torando_gui --restore-dns >/dev/null 2>&1 || true
+    pkill -xf "${pexp}" 2>/dev/null || true
+}
+
+rc_cmd $1

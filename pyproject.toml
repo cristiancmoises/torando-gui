@@ -6,13 +6,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "torando-gui"
-version = "1.1.0"
-description = "Native desktop app to route a Linux user's egress through Tor (transparent proxy + killswitch)"
+version = "1.2.0"
+description = "Native desktop app to route a user's egress through Tor with a fail-closed killswitch (Linux/macOS/BSD/Windows)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "AGPL-3.0-only"
 authors = [{ name = "Cristian Cezar Moisés" }]
-keywords = ["tor", "privacy", "transparent-proxy", "anonymity", "killswitch", "gtk", "desktop"]
+keywords = [
+    "tor", "privacy", "transparent-proxy", "anonymity", "killswitch",
+    "gtk", "desktop", "pf", "iptables", "macos", "windows", "bsd",
+]
 dependencies = []
 
 # The daemon is pure-stdlib. The native desktop window additionally needs the

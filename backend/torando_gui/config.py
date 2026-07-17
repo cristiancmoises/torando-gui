@@ -16,14 +16,70 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-# --- system locations (FHS) -------------------------------------------------
-CONFIG_DIR = Path("/etc/torando-gui")
+from . import platform as _plat
+
+
+def default_paths(platform_id: str | None = None) -> dict[str, Path]:
+    """Per-OS install/runtime locations.
+
+    Linux keeps its exact FHS layout (``/etc/torando-gui``, ``/run``,
+    ``/etc/tor/torrc``) so nothing about the proven path changes. The other
+    platforms follow their own conventions: Homebrew's prefix on macOS,
+    ``/usr/local/etc`` on FreeBSD, ``C:\\ProgramData`` on Windows.
+    """
+    p = platform_id or _plat.CURRENT
+    if p == _plat.WINDOWS:
+        base = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "torando-gui"
+        return {
+            "config_dir": base,
+            "runtime_dir": base / "run",
+            "torrc": base / "torrc",
+            "resolv": base / "resolv.conf",  # unused on Windows (netsh drives DNS)
+        }
+    if p == _plat.MACOS:
+        # Apple Silicon Homebrew lives under /opt/homebrew; Intel under /usr/local.
+        # Detect the prefix itself (not tor's etc dir, which may not exist until
+        # `brew install tor` runs) so the torrc path is right from first launch.
+        brew = Path("/opt/homebrew") if Path("/opt/homebrew").is_dir() else Path("/usr/local")
+        return {
+            "config_dir": Path("/etc/torando-gui"),
+            "runtime_dir": Path("/var/run/torando-gui"),
+            "torrc": brew / "etc/tor/torrc",
+            "resolv": Path("/etc/resolv.conf"),  # a stub on macOS; networksetup drives DNS
+        }
+    if p == _plat.FREEBSD:
+        return {
+            "config_dir": Path("/usr/local/etc/torando-gui"),
+            "runtime_dir": Path("/var/run/torando-gui"),
+            "torrc": Path("/usr/local/etc/tor/torrc"),
+            "resolv": Path("/etc/resolv.conf"),
+        }
+    if p in (_plat.OPENBSD, _plat.NETBSD):
+        return {
+            "config_dir": Path("/etc/torando-gui"),
+            "runtime_dir": Path("/var/run/torando-gui"),
+            "torrc": Path("/etc/tor/torrc"),
+            "resolv": Path("/etc/resolv.conf"),
+        }
+    # Linux (and unknown): the original FHS layout, unchanged.
+    return {
+        "config_dir": Path("/etc/torando-gui"),
+        "runtime_dir": Path("/run/torando-gui"),
+        "torrc": Path("/etc/tor/torrc"),
+        "resolv": Path("/etc/resolv.conf"),
+    }
+
+
+_PATHS = default_paths()
+
+# --- system locations (platform-aware; Linux keeps the FHS layout) ----------
+CONFIG_DIR = _PATHS["config_dir"]
 CONFIG_FILE = CONFIG_DIR / "config.json"
-RUNTIME_DIR = Path("/run/torando-gui")
+RUNTIME_DIR = _PATHS["runtime_dir"]
 TOKEN_FILE = RUNTIME_DIR / "token"
 
-DEFAULT_TORRC = Path("/etc/tor/torrc")
-DEFAULT_RESOLV = Path("/etc/resolv.conf")
+DEFAULT_TORRC = _PATHS["torrc"]
+DEFAULT_RESOLV = _PATHS["resolv"]
 
 # Markers delimiting the block this daemon owns inside torrc. Anything outside
 # the markers is never touched.
@@ -101,6 +157,23 @@ class Config:
     use_bridges: bool = False
     exit_country: str | None = None  # ISO code without braces, e.g. "de"
     bridges: list[str] = field(default_factory=list)
+
+    # IPv6 killswitch (Linux ip6tables / pf inet6). When the kernel can carry
+    # IPv6 an un-firewalled v6 path is a leak, so this drops the torified UID's
+    # IPv6 egress. Default on; turn off only if you have no IPv6 at all.
+    ipv6_killswitch: bool = True
+
+    # cross-platform firewall knobs (ignored on platforms that don't use them)
+    #   tor_user   — the account Tor runs as (pf exemption); None = platform default
+    #   tor_path   — path to the tor executable (Windows firewall allow-rule)
+    #   pf_anchor  — name of the pf anchor this daemon owns (macOS/BSD)
+    #   allow_lan  — permit LAN/loopback-subnet egress under the killswitch (Windows)
+    #   allow_dhcp — permit DHCP so the box can still get a lease (Windows)
+    tor_user: str | None = None
+    tor_path: str | None = None
+    pf_anchor: str = "torando-gui"
+    allow_lan: bool = False
+    allow_dhcp: bool = True
 
     # external checks / system paths
     check_url: str = "https://check.torproject.org/api/ip"

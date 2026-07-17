@@ -1,0 +1,39 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
+#
+# FreeBSD rc.d script for the Torando Control root daemon.
+# Install to /usr/local/etc/rc.d/torando-gui and enable with:
+#   sysrc torando_gui_enable=YES
+#   service torando-gui start
+#
+# PROVIDE: torando_gui
+# REQUIRE: DAEMON NETWORKING pf
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="torando_gui"
+rcvar="torando_gui_enable"
+load_rc_config $name
+
+: ${torando_gui_enable:="NO"}
+: ${torando_gui_python:="/usr/local/bin/python3"}
+: ${torando_gui_libdir:="/usr/local/lib/torando-gui"}
+
+pidfile="/var/run/torando-gui.pid"
+command="/usr/sbin/daemon"
+command_args="-p ${pidfile} -f env PYTHONPATH=${torando_gui_libdir} ${torando_gui_python} -m torando_gui"
+
+stop_cmd="torando_gui_stop"
+torando_gui_stop()
+{
+    # Restore DNS before exiting so the host is never left without a resolver.
+    env PYTHONPATH=${torando_gui_libdir} ${torando_gui_python} -m torando_gui --restore-dns >/dev/null 2>&1 || true
+    if [ -f "${pidfile}" ]; then
+        kill "$(cat "${pidfile}")" 2>/dev/null || true
+        rm -f "${pidfile}"
+    fi
+}
+
+run_rc_command "$1"

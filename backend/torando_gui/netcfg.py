@@ -76,7 +76,7 @@ def _strip_managed_blocks(text: str) -> str:
         if e == -1:  # dangling BEGIN: drop from it to end of file
             return text[:b]
         e += len(TORRC_END)
-        if text[e:e + 1] == "\n":
+        if text[e : e + 1] == "\n":
             e += 1
         text = text[:b] + text[e:]
 
@@ -97,6 +97,14 @@ def apply_torrc(cfg: Config, path: Path | None = None) -> Path:
 
 PINNED_RESOLV = "nameserver 127.0.0.1\n"
 
+# Immutability command builders. Linux uses chattr's ext-attr immutable bit;
+# the BSDs (and macOS) use chflags with the system-immutable flag. These make
+# the pin survive dhclient/resolvconf/resolvd trying to rewrite resolv.conf.
+CHATTR_SET = lambda p: ["chattr", "+i", p]  # noqa: E731
+CHATTR_CLEAR = lambda p: ["chattr", "-i", p]  # noqa: E731
+CHFLAGS_SET = lambda p: ["chflags", "schg", p]  # noqa: E731
+CHFLAGS_CLEAR = lambda p: ["chflags", "noschg", p]  # noqa: E731
+
 
 def _backup_path(path: Path) -> Path:
     return path.with_suffix(path.suffix + ".torando.bak")
@@ -105,9 +113,7 @@ def _backup_path(path: Path) -> Path:
 def _is_only_our_pin(text: str) -> bool:
     """True if *text* holds only our loopback pin (no real upstream resolver)."""
     meaningful = [
-        ln.strip()
-        for ln in text.splitlines()
-        if ln.strip() and not ln.lstrip().startswith("#")
+        ln.strip() for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")
     ]
     return meaningful == ["nameserver 127.0.0.1"]
 
@@ -141,25 +147,28 @@ def lock_resolv(
     path: Path | None = None,
     runner: Runner | None = None,
     immutable: bool = True,
+    set_immutable: Callable[[str], list[str]] = CHATTR_SET,
+    clear_immutable: Callable[[str], list[str]] = CHATTR_CLEAR,
 ) -> dict[str, object]:
     """Pin resolv.conf at 127.0.0.1 (mode 0644) and optionally make it immutable.
 
     Captures the current real resolver first so :func:`restore_resolv` can put
     it back. The pin is written world-readable on purpose — a root-only
-    resolv.conf breaks DNS for every non-root user.
+    resolv.conf breaks DNS for every non-root user. The immutability command is
+    injectable so the BSDs use ``chflags schg`` where Linux uses ``chattr +i``.
     """
     run = runner or _default_runner
     target = path or Path(cfg.resolv_path)
     _capture_resolver(target)
-    run(["chattr", "-i", str(target)])  # clear any prior lock so we can write
+    run(clear_immutable(str(target)))  # clear any prior lock so we can write
     atomic_write_text(target, PINNED_RESOLV, mode=0o644)
     locked = False
     note = ""
     if immutable:
-        res = run(["chattr", "+i", str(target)])
+        res = run(set_immutable(str(target)))
         locked = res.returncode == 0
         if not locked:
-            note = (res.stderr or "chattr +i unavailable").strip()
+            note = (res.stderr or "immutable flag unavailable").strip()
     return {"path": str(target), "immutable": locked, "note": note}
 
 
@@ -167,6 +176,7 @@ def restore_resolv(
     cfg: Config,
     path: Path | None = None,
     runner: Runner | None = None,
+    clear_immutable: Callable[[str], list[str]] = CHATTR_CLEAR,
 ) -> dict[str, object]:
     """Undo :func:`lock_resolv`: clear the immutable bit, put the client's real
     resolver back (mode 0644), and drop the backup.
@@ -177,7 +187,7 @@ def restore_resolv(
     """
     run = runner or _default_runner
     target = path or Path(cfg.resolv_path)
-    run(["chattr", "-i", str(target)])  # always make it writable again first
+    run(clear_immutable(str(target)))  # always make it writable again first
     bak = _backup_path(target)
     restored = False
     note = ""

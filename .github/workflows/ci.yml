@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# GitHub Actions CI: lint + format-check + tests across the supported Python
-# range. The project is stdlib-only, so the only dev dependencies are ruff and
-# pytest. Mirrored to .forgejo/workflows/ci.yml for Forgejo/Codeberg.
+# CI: lint + format-check + tests. The project is stdlib-only, so the only dev
+# dependencies are ruff and pytest. Linux runs across the supported Python range
+# in containers; Windows and macOS run the platform-portable suite (the iptables
+# and resolv.conf tests skip themselves off Linux). Mirrored to .forgejo/.
 name: CI
 
 on:
@@ -10,7 +11,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  linux:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -20,6 +21,26 @@ jobs:
       image: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install dev tooling
+        run: pip install --no-cache-dir ruff pytest
+      - name: Lint (ruff check)
+        run: ruff check .
+      - name: Format check (ruff format --check)
+        run: ruff format --check .
+      - name: Tests (pytest)
+        run: pytest tests/ -q
+
+  crossplatform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Install dev tooling
         run: pip install --no-cache-dir ruff pytest
       - name: Lint (ruff check)

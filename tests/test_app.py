@@ -31,15 +31,15 @@ class StatefulBackend(MockBackend):
         self._fail_rules = fail_rules
         self._fail_lock = fail_lock
 
-    def apply_rules(self, uid: int, trans: int, dns: int) -> None:
+    def apply_rules(self, cfg: Config) -> None:
         if self._fail_rules:
             raise RuntimeError("simulated iptables failure")
         self.rules = True
-        super().apply_rules(uid, trans, dns)
+        super().apply_rules(cfg)
 
-    def remove_rules(self, uid: int, trans: int, dns: int) -> None:
+    def remove_rules(self, cfg: Config) -> None:
         self.rules = False
-        super().remove_rules(uid, trans, dns)
+        super().remove_rules(cfg)
 
     def lock_resolv(self, cfg: Config) -> dict[str, object]:
         if self._fail_lock:
@@ -55,8 +55,8 @@ class StatefulBackend(MockBackend):
     def resolv_is_pinned(self, cfg: Config) -> bool:
         return self.pinned
 
-    def rules_status(self, uid: int, trans: int, dns: int) -> dict[str, object]:
-        st = super().rules_status(uid, trans, dns)
+    def rules_status(self, cfg: Config) -> dict[str, object]:
+        st = super().rules_status(cfg)
         st["killswitch"] = self.rules
         st["active"] = self.rules
         return st
