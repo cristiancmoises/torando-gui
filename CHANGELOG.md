@@ -4,6 +4,23 @@ All notable changes to **Torando Control** are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.4] — 2026-07-17
+
+The actual reason "Torando does not install" on Windows — found from a user's
+PowerShell error log.
+
+### Fixed — Windows (showstopper)
+- **`install.ps1` failed to parse, so nothing installed.** The script contained
+  an em-dash (`—`) and an accented letter (`é`) in comments/strings. Windows
+  PowerShell 5.1 reads a BOM-less `.ps1` as the system ANSI codepage, so those
+  UTF-8 bytes became mojibake (`â€"`) — and the stray quote in it **closed a
+  string early**, giving `Unexpected token 'the'` / `Missing closing '}'` and
+  aborting the whole script. `install.ps1` and `uninstall.ps1` are now **pure
+  ASCII**, and `build-windows.sh` fails the build if any shipped `.ps1`/`.cmd`
+  isn't ASCII, so this can't regress.
+- `uninstall.ps1` no longer prints scary (harmless) `Stop-ScheduledTask` /
+  `Unregister-ScheduledTask` errors when the tasks aren't present.
+
 ## [1.3.3] — 2026-07-17
 
 Fixes the visible mess on Windows: the flashing console windows, the missing log,
@@ -350,6 +367,7 @@ Initial release.
   SOCKS framing, exit-check invariants, config, `torrc`/`resolv` editing and the
   server's access controls.
 
+[1.3.4]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.4
 [1.3.3]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.3
 [1.3.2]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.2
 [1.3.1]: https://github.com/cristiancmoises/torando-gui/releases/tag/v1.3.1

@@ -50,15 +50,7 @@ per-process redirect), so it has no "target user" — the whole machine is
 routed. See [docs/USAGE.md](docs/USAGE.md#platform-notes) for the per-OS detail.
 
 New in 1.3.x: the **Windows build is all-in-one** — the `-windows.zip` ships its
-own embedded Python and Tor, so there is nothing to install first. **1.3.3** stops
-the flurry of console windows that used to flash on Connect (every `netsh`/
-`schtasks` the windowless daemon ran opened its own console — now suppressed with
-`CREATE_NO_WINDOW`), always writes a diagnostic log
-(`%ProgramData%\torando-gui\logs\daemon.log`), and makes `install.ps1` self-log
-so a failed install is diagnosable. 1.3.2 fixed a BOM'd-config regression, a
-reinstall-nesting bug, and localized-`netsh` bugs (DNS outage / destroyed firewall
-policy) on non-English Windows. 1.2.0 added the Linux **IPv6 killswitch** and the
-native macOS/BSD/Windows backends.
+own embedded Python and Tor, so there is nothing to install first. **1.3.4** fixes the real reason installs failed: the installer script had an em-dash/accent that Windows PowerShell 5.1 mis-decoded, breaking the script's parse; the `.ps1` files are now pure ASCII (build-guarded). **1.3.3** stopped the flurry of console windows that flashed on Connect and made logging reliable. 1.2.0 added the Linux **IPv6 killswitch** and the native macOS/BSD/Windows backends.
 
 ## How it works
 
@@ -126,14 +118,14 @@ Grab the release assets from the [releases page](https://github.com/cristiancmoi
 
 ### Debian / Ubuntu
 ```sh
-sudo apt install ./torando-gui_1.3.3_all.deb
+sudo apt install ./torando-gui_1.3.4_all.deb
 sudo systemctl enable --now torando-gui.service
 torando-gui
 ```
 
 ### Fedora / RHEL
 ```sh
-sudo dnf install ./torando-gui-1.3.3-1.noarch.rpm
+sudo dnf install ./torando-gui-1.3.4-1.noarch.rpm
 sudo systemctl enable --now torando-gui.service
 torando-gui
 ```
@@ -192,9 +184,9 @@ brew tap cristiancmoises/tap && brew install torando-gui   # once the tap is pub
 sudo torando-guid          # or load the LaunchDaemon (see below)
 torando-gui
 ```
-Or from the `torando-gui-1.3.3-macos.zip` bundle:
+Or from the `torando-gui-1.3.4-macos.zip` bundle:
 ```sh
-unzip torando-gui-1.3.3-macos.zip && cd torando-gui-1.3.3
+unzip torando-gui-1.3.4-macos.zip && cd torando-gui-1.3.4
 sudo ./install.sh          # installs the .app, CLI, and LaunchDaemon
 ```
 The app is unsigned, so the first launch needs Right-click → Open (or
@@ -206,11 +198,11 @@ notes in [docs/USAGE.md](docs/USAGE.md#platform-notes).
 ```sh
 # FreeBSD
 pkg install tor
-tar xzf torando-gui-1.3.3-freebsd.tar.gz && cd torando-gui-1.3.3
+tar xzf torando-gui-1.3.4-freebsd.tar.gz && cd torando-gui-1.3.4
 sudo ./install.sh && sudo service torando-gui start
 # OpenBSD
 pkg_add tor
-tar xzf torando-gui-1.3.3-openbsd.tar.gz && cd torando-gui-1.3.3
+tar xzf torando-gui-1.3.4-openbsd.tar.gz && cd torando-gui-1.3.4
 doas ./install.sh && doas rcctl enable torando_gui && doas rcctl start torando_gui
 ```
 
@@ -219,7 +211,7 @@ The `-windows.zip` bundles its own embedded Python **and** Tor, so you don't
 install anything first. From an **elevated** PowerShell, **run it from the
 account you'll use the desktop with**:
 ```powershell
-Expand-Archive torando-gui-1.3.3-windows.zip .; cd torando-gui-1.3.3
+Expand-Archive torando-gui-1.3.4-windows.zip .; cd torando-gui-1.3.4
 powershell -ExecutionPolicy Bypass -File install.ps1
 .\torando-gui.cmd
 ```
@@ -261,13 +253,13 @@ clears the lock and restores your resolver. See
 
 ```sh
 make test            # ruff + pytest
-make deb             # dist/torando-gui_1.3.3_all.deb        (needs dpkg-deb)
-make rpm             # dist/torando-gui-1.3.3-1.noarch.rpm   (needs rpmbuild)
+make deb             # dist/torando-gui_1.3.4_all.deb        (needs dpkg-deb)
+make rpm             # dist/torando-gui-1.3.4-1.noarch.rpm   (needs rpmbuild)
 make appimage        # dist/Torando_Control-x86_64.AppImage  (needs appimagetool)
-make tarball         # dist/torando-gui-1.3.3.tar.zst        (needs zstd)
-make windows         # dist/torando-gui-1.3.3-windows.zip    (needs zip)
-make macos           # dist/torando-gui-1.3.3-macos.zip      (needs zip; png2icns for the icon)
-make freebsd openbsd # dist/torando-gui-1.3.3-<os>.tar.gz
+make tarball         # dist/torando-gui-1.3.4.tar.zst        (needs zstd)
+make windows         # dist/torando-gui-1.3.4-windows.zip    (needs zip)
+make macos           # dist/torando-gui-1.3.4-macos.zip      (needs zip; png2icns for the icon)
+make freebsd openbsd # dist/torando-gui-1.3.4-<os>.tar.gz
 make all             # every format whose tooling is present
 ```
 

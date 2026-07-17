@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (c) 2026 Cristian Cezar Moisés — AGPL-3.0-only
+# Copyright (c) 2026 Cristian Cezar Moises -- AGPL-3.0-only
 #
-# Remove Torando Control from Windows. Does a FULL teardown first — restores the
-# firewall policy, the WinINET system proxy AND DNS — so removal never leaves the
+# Remove Torando Control from Windows. Does a FULL teardown first -- restores the
+# firewall policy, the WinINET system proxy AND DNS -- so removal never leaves the
 # browser pointed at a now-deleted SOCKS proxy. Run from an elevated PowerShell,
 # ideally from the same account you installed with (the proxy is per-user).
 #
@@ -35,8 +35,8 @@ if ((Get-ItemProperty -Path $inet -Name ProxyServer).ProxyServer -like "*127.0.0
 
 # 3) Stop and remove both tasks, wait for the daemon process to exit, then delete.
 foreach ($t in @("TorandoGUI-Daemon", "TorandoGUI-Tor")) {
-    Stop-ScheduledTask -TaskName $t
-    Unregister-ScheduledTask -TaskName $t -Confirm:$false
+    Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue
 }
 foreach ($i in 1..10) {
     $busy = Get-Process pythonw, tor -ErrorAction SilentlyContinue |

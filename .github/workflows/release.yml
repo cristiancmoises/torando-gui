@@ -44,7 +44,7 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.3.3' }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.3.4' }}
           files: |
             dist/*.deb
             dist/*.rpm

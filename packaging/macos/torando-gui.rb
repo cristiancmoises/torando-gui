@@ -10,11 +10,11 @@
 #   torando-gui
 #
 # Replace the url/sha256 with the tagged release archive when cutting a release:
-#   sha256sum torando-gui-1.3.3.tar.gz
+#   sha256sum torando-gui-1.3.4.tar.gz
 class TorandoGui < Formula
   desc "Route a user's egress through Tor (system SOCKS proxy + pf killswitch)"
   homepage "https://github.com/cristiancmoises/torando-gui"
-  url "https://github.com/cristiancmoises/torando-gui/archive/refs/tags/v1.3.3.tar.gz"
+  url "https://github.com/cristiancmoises/torando-gui/archive/refs/tags/v1.3.4.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "AGPL-3.0-only"
 
@@ -47,6 +47,6 @@ class TorandoGui < Formula
   end
 
   test do
-    assert_match "1.3.3", shell_output("#{bin}/torando-guid --version")
+    assert_match "1.3.4", shell_output("#{bin}/torando-guid --version")
   end
 end

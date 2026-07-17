@@ -63,14 +63,35 @@ install -m 0644 "$ROOT/LICENSE"         "$TOP/LICENSE.txt"
 
 # Record what was bundled (for provenance / updates).
 cat > "$TOP/BUNDLED.txt" <<EOF
-torando-gui $VERSION — Windows all-in-one
+torando-gui $VERSION - Windows all-in-one
 Bundled CPython:  $PYVER  ($PY_URL)
 Bundled Tor:      $TORVER ($TOR_URL)
 
 Tor ships security updates often; to refresh it, replace tor\\tor.exe and the
-tor\\*.dll / tor\\data files from a newer Tor Expert Bundle, or reinstall a newer
+tor\\data files from a newer Tor Expert Bundle, or reinstall a newer
 torando-gui release.
 EOF
+
+# GUARD: PowerShell 5.1 reads a BOM-less .ps1 as the system ANSI codepage, so a
+# non-ASCII char (em-dash, accented letter) becomes mojibake and the script
+# fails to PARSE ("does not install"). .cmd has the same hazard. Fail the build
+# if any shipped script is not pure ASCII.
+python3 - "$TOP" <<'PYEOF'
+import sys, glob, os
+top = sys.argv[1]
+bad = []
+for pat in ("*.ps1", "*.cmd"):
+    for f in glob.glob(os.path.join(top, "**", pat), recursive=True):
+        data = open(f, "rb").read()
+        nz = [(i, b) for i, b in enumerate(data) if b > 127]
+        if nz:
+            bad.append((f, nz[0]))
+if bad:
+    for f, (i, b) in bad:
+        sys.stderr.write(f"NON-ASCII in {f} at byte {i} (0x{b:02X}) -- would break PowerShell/cmd\n")
+    sys.exit(1)
+print("  ascii-guard: all .ps1/.cmd are pure ASCII")
+PYEOF
 
 mkdir -p "$DIST"
 OUT="$DIST/${PKGNAME}-${VERSION}-windows.zip"

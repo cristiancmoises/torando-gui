@@ -38,7 +38,7 @@
 
 (package
   (name "torando-gui")
-  (version "1.3.3")
+  (version "1.3.4")
   (source (local-file %source "torando-gui-checkout"
                       #:recursive? #t
                       #:select? source-file?))
